@@ -30,7 +30,7 @@
       else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
       else el.setAttribute(k, v === true ? '' : v);
     }
-    for (const kid of kids.flat()) {
+    for (const kid of kids.flat(Infinity)) {
       if (kid == null || kid === false) continue;
       el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
     }
@@ -138,6 +138,8 @@
   function setOffline(off) {
     if (off === S.offline) return;
     S.offline = off;
+    document.querySelectorAll('.remote .btn, #btn-commit-index, #btn-commit-all, #panel-body .btn, #btn-branch, #btn-project').forEach(b => { if (off) b.disabled = true; });
+    if (!off) { S.fingerprint = null; ['btn-branch', 'btn-project'].forEach(id => { $(id).disabled = false; }); }
     banner(off ? 'Visualiseur injoignable. Relancez « git viewer » dans un terminal.' : null, true);
   }
   function banner(text, isErr) {
@@ -260,7 +262,15 @@
     document.documentElement.style.setProperty('--gw', `${w}px`);
     const frag = document.createDocumentFragment();
     g.commits.forEach(c => {
-      const chips = c.refs.map(r => refChip(r, st));
+      const locals = new Set(c.refs.filter(r => r.type === 'head').map(r => r.name));
+      const chips = c.refs
+        .filter(r => !(r.type === 'remote' && locals.has(r.name.slice(r.name.indexOf('/') + 1))))
+        .map(r => {
+          const el = refChip(r, st);
+          const twin = c.refs.find(x => x.type === 'remote' && r.type === 'head' && x.name.slice(x.name.indexOf('/') + 1) === r.name);
+          if (twin) { el.title = `${el.title || r.name} · synchronisée avec ${twin.name}`; el.classList.add('synced'); }
+          return el;
+        });
       if (st.detached && c.h === st.head) chips.unshift(h('span', { class: 'ref head here', text: 'HEAD' }));
       const row = h('div', {
         class: 'row' + (c.auto ? ' auto' : '') + (c.h === st.head ? ' head' : '') + (S.sel === c.h ? ' sel' : ''),
@@ -293,10 +303,12 @@
     if (row) select(row.dataset.sha);
   });
   $('graph').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.closest('.row')) { select(e.target.closest('.row').dataset.sha); return; }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
     const rows = Array.from(document.querySelectorAll('#graph .row'));
     if (!rows.length) return;
     let i = rows.findIndex(r => r.dataset.sha === S.sel);
+    if (e.key === 'ArrowUp' && i <= 0 && !$('wip-row').hidden) { e.preventDefault(); select('wip'); $('wip-row').focus(); return; }
     if (e.key === 'ArrowDown') i = Math.min(rows.length - 1, i + 1);
     if (e.key === 'ArrowUp') i = Math.max(0, i - 1);
     if (e.key === 'Home') i = 0;
@@ -306,6 +318,11 @@
     rows[i].scrollIntoView({ block: 'nearest' });
   });
   $('wip-row').addEventListener('click', () => select('wip'));
+  $('wip-row').addEventListener('keydown', e => {
+    if (e.key !== 'ArrowDown') return;
+    const first = document.querySelector('#graph .row');
+    if (first) { e.preventDefault(); select(first.dataset.sha, true); }
+  });
 
   // ------------------------------------------------------------ panneau
   function showPanel(node) {
@@ -343,14 +360,14 @@
     } else {
       ops.append(h('button', { type: 'button', class: 'btn small', title: 'Ajouter à l’index', onclick: ev => act('stage', { paths: [c.path] }, { btn: ev.currentTarget }) }, 'Indexer'));
       ops.append(h('button', {
-        type: 'button', class: 'btn small danger', title: 'Annuler les modifications de ce fichier',
+        type: 'button', class: 'btn small danger', title: 'Abandonner les modifications de ce fichier',
         onclick: ev => act('discard', { path: c.path }, {
           btn: ev.currentTarget, danger: true,
           confirm: c.untracked
             ? ['Supprimer le nouveau fichier ?', `${c.path}\n\nCe fichier n'a jamais été committé : il sera supprimé du disque.`, 'Supprimer']
-            : ['Annuler les modifications ?', `${c.path}\n\nLe fichier reviendra à sa dernière version committée. Les modifications non sauvegardées seront perdues.`, 'Annuler les modifications']
+            : ['Abandonner les modifications ?', `${c.path}\n\nLe fichier reviendra à sa dernière version committée. Les modifications non sauvegardées seront perdues.`, 'Abandonner les modifications']
         })
-      }, 'Annuler'));
+      }, 'Abandonner'));
     }
     const li = h('li', { class: 'file' + (isOpen ? ' open' : '') },
       h('span', { class: `st ${letter}`, title: statusTitle[letter] || letter, text: letter }),
@@ -466,9 +483,9 @@
         type: 'button', class: 'btn ghost', title: 'Annuler ce commit en gardant ses modifications',
         onclick: ev => act('undoCommit', {}, {
           btn: ev.currentTarget, danger: true,
-          confirm: ['Annuler le dernier commit ?', 'Le commit disparaît de la branche. Ses modifications sont conservées et indexées, prêtes à être recommittées.', 'Annuler le commit']
+          confirm: ['Défaire le dernier commit ?', 'Le commit disparaît de la branche. Ses modifications sont conservées et indexées, prêtes à être recommittées.', 'Défaire le commit']
         })
-      }, 'Annuler ce commit') : null);
+      }, 'Défaire ce commit') : null);
 
     const files = h('ul', { class: 'files' });
     c.files.forEach(f => {

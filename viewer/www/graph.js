@@ -86,7 +86,7 @@
       r.incoming.forEach(j => edges.appendChild(path(seg(x(j), y0, x(r.col), yc), '', color(Math.max(j, r.col)))));
       r.parents.forEach(p => {
         const cls = c.auto ? 'auto' : '';
-        edges.appendChild(path(seg(x(r.col), yc, x(p.lane), y1), cls, color(Math.max(p.lane, r.col))));
+        edges.appendChild(path(seg(x(r.col), yc, x(p.lane), y1), cls, c.auto ? 'var(--save)' : color(Math.max(p.lane, r.col))));
       });
       const cx = x(r.col);
       if (c.auto) {

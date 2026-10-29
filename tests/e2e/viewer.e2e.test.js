@@ -95,7 +95,7 @@ test('RG-23 / RG-24 : committer est impossible sans message ou avec un index vid
 test('R-13 / VI-13 : annuler le dernier commit garde ses modifications indexées', async () => {
   const before = sh('rev-parse', 'HEAD~1').out.trim();
   await page.locator('#graph .row.head').click();
-  await page.getByRole('button', { name: 'Annuler ce commit' }).click();
+  await page.getByRole('button', { name: 'Défaire ce commit' }).click();
   assert.equal(await page.locator('#dlg-confirm').isVisible(), true, 'confirmation demandée');
   await page.click('#confirm-ok');
   await within(3000, async () => sh('rev-parse', 'HEAD').out.trim() === before, 'commit annulé');
@@ -169,6 +169,36 @@ test('ENF-11 : 375 px sans défilement horizontal, thème sombre', async () => {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   assert.equal(bg, 'rgb(18, 22, 24)');
+});
+
+test('VI-03 : aucune ligne « Travail en cours » sur un projet propre', async () => {
+  sh('stash', '-u');
+  await within(2000, async () => !(await page.locator('#wip-row').isVisible()), 'ligne masquée');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'x');
+  await within(2000, async () => page.locator('#wip-row').isVisible(), 'ligne réapparue');
+});
+
+test('VI-05 : parents affichés comme identifiants cliquables', async () => {
+  await page.locator('#graph .row', { hasText: 'Fusion de feature/graphe' }).click();
+  await page.waitForSelector('.meta');
+  const dd = await page.locator('.meta dd').last().textContent();
+  assert.match(dd, /^[0-9a-f]{8}(, [0-9a-f]{8})*$/);
+});
+
+test('ENF-11 : à 375 px, noms de branches entiers et cibles ≥ 32 px', async () => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.click('#btn-branch');
+  await page.waitForSelector('#branch-local li .t');
+  const cut = await page.$$eval('#branch-local .t', els => els.filter(e => e.scrollWidth > e.clientWidth).length);
+  assert.equal(cut, 0, 'noms tronqués');
+  await page.click('#dlg-branches [data-close]');
+  await page.click('#wip-row');
+  const small = await page.$$eval('button:not([hidden]), select', els => els
+    .filter(e => e.offsetParent && !e.closest('.history-head') && !e.classList.contains('name') && !e.classList.contains('row'))
+    .filter(e => e.getBoundingClientRect().height < 32).map(e => e.id || e.textContent.trim()));
+  assert.deepEqual(small, [], 'contrôles trop petits');
+  const barH = await page.$eval('#bar', e => e.getBoundingClientRect().height);
+  assert.ok(barH <= 130, `en-tête de ${barH} px`);
 });
 
 test('ENF-07 : l’API refuse une requête sans jeton', async () => {
