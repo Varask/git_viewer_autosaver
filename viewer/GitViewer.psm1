@@ -33,7 +33,8 @@ function Assert-Sha([string] $Sha) {
 }
 
 function Assert-BranchName([string] $Repo, [string] $Name) {
-    if (-not $Name -or $Name.StartsWith('-')) { Throw-Viewer "Nom de branche invalide : « $Name »." }
+    # « @{-1} » et consorts seraient développés par git : refusés pour que le nom vérifié soit celui utilisé.
+    if (-not $Name -or $Name.StartsWith('-') -or $Name.Contains('@{') -or $Name -eq '@') { Throw-Viewer "Nom de branche invalide : « $Name »." }
     $r = Invoke-Git $Repo @('check-ref-format', '--branch', $Name) -AllowFail
     if ($r.ExitCode -ne 0) { Throw-Viewer "Nom de branche invalide : « $Name » (espaces, ~ ^ : ? * [ \ et .. interdits)." }
 }
@@ -49,6 +50,11 @@ function Assert-RelPath([string] $Repo, [string] $Path) {
         Throw-Viewer "Le fichier « $Path » est hors du projet."
     }
     return $full
+}
+
+function ConvertTo-Literal([string[]] $Paths) {
+    # Pathspec littéral : « [ab].txt » ne désigne que ce fichier, pas a.txt et b.txt (VI-10, FC1).
+    return [string[]]@($Paths | ForEach-Object { ":(literal)$_" })
 }
 
 function Get-Prop($Obj, [string] $Name, $Default = $null) {
@@ -291,18 +297,18 @@ function Get-ViewerDiff {
     if ($Mode -eq 'commit') {
         Assert-Sha $Sha
         $parents = @((Get-GitValue $Repo @('show', '-s', '--format=%P', $Sha)) -split ' ' | Where-Object { $_ })
-        if ($parents.Count) { $out = (Invoke-Git $Repo @('diff', '-M', $parents[0], $Sha, '--', $Path)).Out }
-        else { $out = (Invoke-Git $Repo @('show', '--format=', $Sha, '--', $Path)).Out }
+        if ($parents.Count) { $out = (Invoke-Git $Repo @('diff', '-M', $parents[0], $Sha, '--', (ConvertTo-Literal $Path)[0])).Out }
+        else { $out = (Invoke-Git $Repo @('show', '--format=', $Sha, '--', (ConvertTo-Literal $Path)[0])).Out }
     } elseif ($Mode -eq 'staged') {
-        $out = (Invoke-Git $Repo @('diff', '--cached', '-M', '--', $Path)).Out
+        $out = (Invoke-Git $Repo @('diff', '--cached', '-M', '--', (ConvertTo-Literal $Path)[0])).Out
     } else {
-        $tracked = Get-GitValue $Repo @('ls-files', '--', $Path)
+        $tracked = Get-GitValue $Repo @('ls-files', '--', (ConvertTo-Literal $Path)[0])
         if (-not $tracked) {
             # Nouveau fichier : afficher son contenu.
             $kind = 'new'
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { $out = '' }
             else {
-                $fs = [System.IO.File]::OpenRead($full)
+                $fs = [System.IO.File]::Open($full, 'Open', 'Read', 'ReadWrite, Delete')
                 try {
                     $len = [int][math]::Min($fs.Length, $script:DiffMax + 1)
                     $buf = New-Object byte[] $len
@@ -312,7 +318,7 @@ function Get-ViewerDiff {
                 else { $out = $script:Utf8.GetString($buf) }
             }
         } else {
-            $out = (Invoke-Git $Repo @('diff', '--', $Path)).Out
+            $out = (Invoke-Git $Repo @('diff', '--', (ConvertTo-Literal $Path)[0])).Out
         }
     }
     if ($kind -eq 'diff' -and $out -match '(?m)^Binary files ') { $kind = 'binary' }
@@ -419,13 +425,13 @@ function Invoke-ViewerAction {
 
         'stage' {
             $paths = Get-ActionPaths $Data $Repo
-            return Invoke-GitAction $Repo (@('add', '-A', '--') + $paths) 'Fichier(s) indexé(s).'
+            return Invoke-GitAction $Repo (@('add', '-A', '--') + (ConvertTo-Literal $paths)) 'Fichier(s) indexé(s).'
         }
         'stageAll' { return Invoke-GitAction $Repo @('add', '-A') 'Toutes les modifications sont indexées.' }
         'unstage' {
             $paths = Get-ActionPaths $Data $Repo
-            if ($hasHead) { return Invoke-GitAction $Repo (@('restore', '--staged', '--') + $paths) 'Fichier(s) désindexé(s).' }
-            return Invoke-GitAction $Repo (@('rm', '--cached', '-r', '-q', '--') + $paths) 'Fichier(s) désindexé(s).'
+            if ($hasHead) { return Invoke-GitAction $Repo (@('restore', '--staged', '--') + (ConvertTo-Literal $paths)) 'Fichier(s) désindexé(s).' }
+            return Invoke-GitAction $Repo (@('rm', '--cached', '-r', '-q', '--') + (ConvertTo-Literal $paths)) 'Fichier(s) désindexé(s).'
         }
         'unstageAll' {
             if ($hasHead) { return Invoke-GitAction $Repo @('restore', '--staged', '--', ':/') 'Index vidé.' }
@@ -436,12 +442,13 @@ function Invoke-ViewerAction {
             # VI-11 : revenir à la dernière version connue, ou supprimer un nouveau fichier.
             $path = [string](Get-Prop $Data 'path')
             $full = Assert-RelPath $Repo $path
-            $inHead = $hasHead -and [bool](Get-GitValue $Repo @('ls-tree', '--name-only', 'HEAD', '--', $path))
+            $lit = (ConvertTo-Literal $path)[0]
+            $inHead = $hasHead -and [bool](Get-GitValue $Repo @('ls-tree', '--name-only', 'HEAD', '--', $lit))
             if ($inHead) {
-                return Invoke-GitAction $Repo @('restore', '--source=HEAD', '--staged', '--worktree', '--', $path) "Modifications annulées : $path"
+                return Invoke-GitAction $Repo @('restore', '--source=HEAD', '--staged', '--worktree', '--', $lit) "Modifications abandonnées : $path"
             }
-            $inIndex = [bool](Get-GitValue $Repo @('ls-files', '--', $path))
-            if ($inIndex) { [void](Invoke-Git $Repo @('rm', '--cached', '-q', '--', $path) -AllowFail) }
+            $inIndex = [bool](Get-GitValue $Repo @('ls-files', '--', $lit))
+            if ($inIndex) { [void](Invoke-Git $Repo @('rm', '--cached', '-q', '--', $lit) -AllowFail) }
             if (Test-Path -LiteralPath $full -PathType Leaf) { Remove-Item -LiteralPath $full -Force }
             return New-ActionResult $true "Nouveau fichier supprimé : $path"
         }
@@ -514,6 +521,10 @@ function Invoke-ViewerAction {
         'merge' {
             $b = [string](Get-Prop $Data 'branch')
             Assert-BranchName $Repo $b
+            # « merge --abort » ne sait pas toujours reconstruire un travail non committé : on refuse d'emblée (FC1).
+            if ((Invoke-Git $Repo @('status', '--porcelain', '--untracked-files=no')).Out.Trim()) {
+                Throw-Viewer 'Fusion refusée : committez ou mettez de côté vos modifications d''abord.' 409
+            }
             $r = Invoke-Git $Repo @('merge', '--no-edit', $b) -TimeoutSec 300 -AllowFail
             if ($r.ExitCode -eq 0) { return New-ActionResult $true "Branche $b fusionnée." }
             $gitDir = ConvertTo-GTNativePath (Get-GitValue $Repo @('rev-parse', '--absolute-git-dir'))
@@ -543,10 +554,14 @@ function Invoke-ViewerAction {
             $sha = [string](Get-Prop $Data 'sha')
             Assert-Sha $sha
             if ($script:HasAutosave) {
-                $r = Restore-GTCommitFiles $Repo $sha
+                try { $r = Restore-GTCommitFiles $Repo $sha } catch { return New-ActionResult $false $_.Exception.Message }
                 $msg = 'Fichiers restaurés.'
                 if ($r.Safety) { $msg += " L'état précédent est conservé dans le point $($r.Safety.Substring(0,8))." }
                 return New-ActionResult $true $msg
+            }
+            # Visualiseur seul (TR-02) : pas de filet de sécurité possible → refus si du travail serait écrasé.
+            if ((Invoke-Git $Repo @('status', '--porcelain', '--untracked-files=all')).Out.Trim()) {
+                return New-ActionResult $false 'Restauration refusée : committez ou mettez de côté vos modifications d''abord (la sauvegarde automatique n''est pas installée pour les protéger).'
             }
             return Invoke-GitAction $Repo @('restore', "--source=$sha", '--worktree', '--', ':/') 'Fichiers restaurés.'
         }
@@ -560,7 +575,7 @@ function Invoke-ViewerAction {
         'fetch' { return Invoke-GitAction $Repo @('fetch', '--all', '--prune') 'État du distant récupéré.' 300 }
         'pull' {
             # RG-22 : jamais de fusion implicite.
-            $r = Invoke-Git $Repo @('pull', '--ff-only') -TimeoutSec 300 -AllowFail
+            $r = Invoke-Git $Repo @('pull', '--ff-only', '--no-rebase') -TimeoutSec 300 -AllowFail
             if ($r.ExitCode -eq 0) { return New-ActionResult $true 'Commits distants récupérés.' }
             $e = Get-GitError $r
             if ($e -match 'Not possible to fast-forward|diverg|non-fast-forward') {
@@ -593,7 +608,7 @@ function Invoke-ViewerAction {
 
         'autosaveNow' {
             if (-not $script:HasAutosave) { Throw-Viewer 'La sauvegarde automatique n''est pas installée.' }
-            $r = Invoke-AutosaveProject -Repo $Repo
+            try { $r = Invoke-AutosaveProjectLocked -Repo $Repo } catch { return New-ActionResult $false $_.Exception.Message }
             $msg = switch ($r.Result) {
                 'Saved' { "$($r.Message) créé." }
                 'Unchanged' { 'Rien de nouveau à sauvegarder.' }
@@ -643,7 +658,7 @@ function Test-ViewerHost([hashtable] $Headers, [int] $Port) {
 function Test-ViewerApiAccess([hashtable] $Headers, $Shared) {
     # Jeton obligatoire, requêtes inter-sites refusées (ENF-07).
     $port = [int]$Shared.port
-    if ([string]$Headers['x-gittools-token'] -ne [string]$Shared.token) { return $false }
+    if ([string]$Headers['x-gittools-token'] -cne [string]$Shared.token) { return $false }
     $site = [string]$Headers['sec-fetch-site']
     if ($site -and $site -notin @('same-origin', 'none')) { return $false }
     $origin = [string]$Headers['origin']
@@ -663,8 +678,9 @@ function Get-ViewerStatic([string] $Path, $Shared) {
     if (-not $map.ContainsKey($Path)) { return $null }
     $file = Join-Path $script:Www $map[$Path][0]
     if (-not (Test-Path -LiteralPath $file)) { return $null }
+    # Le jeton n'est PAS injecté dans la page : il arrive dans le fragment d'URL (#t=…), jamais envoyé
+    # au serveur, ouvert par le lanceur. Un autre compte de la machine ne peut donc pas le lire via GET /.
     $text = [System.IO.File]::ReadAllText($file, $script:Utf8)
-    if ($map[$Path][0] -eq 'index.html') { $text = $text.Replace('__GITTOOLS_TOKEN__', [string]$Shared.token) }
     return New-ViewerResponse 200 $map[$Path][1] $text
 }
 
@@ -689,9 +705,12 @@ function Get-ViewerCurrentProject($Shared) {
 }
 
 function Set-ViewerProject([string] $Root, $Shared) {
-    $changed = -not (Test-GTSamePath $Root ([string]$Shared.project))
-    $Shared.project = $Root
-    if ($changed) { $Shared.projectSeq = [int]$Shared.projectSeq + 1 }
+    [System.Threading.Monitor]::Enter($Shared.SyncRoot)
+    try {
+        $changed = -not (Test-GTSamePath $Root ([string]$Shared.project))
+        $Shared.project = $Root
+        if ($changed) { $Shared.projectSeq = [int]$Shared.projectSeq + 1 }
+    } finally { [System.Threading.Monitor]::Exit($Shared.SyncRoot) }
     $tracked = Register-ViewerProject $Root
     Write-GTLog viewer INFO $Root 'Projet ouvert.'
     return $tracked
@@ -704,11 +723,15 @@ function Test-ViewerPageAlive($Shared) {
 
 function Open-ViewerTabIfNeeded($Shared, [switch] $Force) {
     # RG-27 / VI-31 : un onglet seulement si aucune page n'est affichée.
-    if (-not $Force -and (Test-ViewerPageAlive $Shared)) { return $false }
-    if (([datetime]::UtcNow - [datetime]$Shared.lastTabOpen).TotalSeconds -lt 10) { return $false }
-    $Shared.lastTabOpen = [datetime]::UtcNow
+    # Vérification et réservation atomiques : deux lancements simultanés n'ouvrent qu'un onglet.
+    [System.Threading.Monitor]::Enter($Shared.SyncRoot)
+    try {
+        if (-not $Force -and (Test-ViewerPageAlive $Shared)) { return $false }
+        if (([datetime]::UtcNow - [datetime]$Shared.lastTabOpen).TotalSeconds -lt 10) { return $false }
+        $Shared.lastTabOpen = [datetime]::UtcNow
+    } finally { [System.Threading.Monitor]::Exit($Shared.SyncRoot) }
     if ($Shared.ContainsKey('noBrowser') -and $Shared.noBrowser) { return $true }
-    try { Start-Process "http://127.0.0.1:$($Shared.port)/" | Out-Null } catch {
+    try { Start-Process "http://127.0.0.1:$($Shared.port)/#t=$($Shared.token)" | Out-Null } catch {
         Write-GTLog viewer WARN '' "Navigateur impossible à ouvrir : $($_.Exception.Message)"
     }
     return $true
@@ -718,7 +741,8 @@ function Invoke-ViewerPickFolder {
     # Sélecteur de dossier (VI-32) dans un processus STA séparé.
     $picker = Join-Path $PSScriptRoot 'pick-folder.ps1'
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'powershell.exe'
+    $psi.FileName = Get-GTPowerShellExe
+    $psi.WorkingDirectory = $env:SystemRoot
     $psi.Arguments = ConvertTo-GTArgString @('-NoProfile', '-NonInteractive', '-STA', '-File', $picker)
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
@@ -806,7 +830,13 @@ function Invoke-ViewerRequest {
                 return New-JsonResponse 200 @{ ok = $true; project = $root; tracked = $tracked; tabOpened = $tab; projectSeq = [int]$Shared.projectSeq }
             }
             'POST /api/browse' {
-                $picked = Invoke-ViewerPickFolder
+                [System.Threading.Monitor]::Enter($Shared.SyncRoot)
+                try {
+                    $busy = $Shared.ContainsKey('picking') -and $Shared.picking
+                    if (-not $busy) { $Shared.picking = $true }
+                } finally { [System.Threading.Monitor]::Exit($Shared.SyncRoot) }
+                if ($busy) { return New-JsonResponse 200 @{ ok = $false; message = 'Le sélecteur de dossier est déjà ouvert.' } }
+                try { $picked = Invoke-ViewerPickFolder } finally { $Shared.picking = $false }
                 if (-not $picked) { return New-JsonResponse 200 @{ ok = $false; message = 'Aucun dossier choisi.' } }
                 $root = Resolve-ViewerProject $picked
                 $tracked = Set-ViewerProject $root $Shared

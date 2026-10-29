@@ -54,16 +54,45 @@ function Read-GTJson {
     }
 }
 
+function Invoke-GTRetry {
+    # Quelques tentatives espacées : un autre processus peut lire le fichier au même instant.
+    param([scriptblock] $Action, [int] $Tries = 5)
+    for ($i = 1; $i -le $Tries; $i++) {
+        try { return (& $Action) } catch { if ($i -eq $Tries) { throw }; Start-Sleep -Milliseconds (40 * $i) }
+    }
+}
+
 function Write-GTJson {
-    # Écriture atomique : fichier temporaire puis remplacement.
+    # Écriture atomique : fichier temporaire unique puis remplacement.
+    # Attention : $null passé à un paramètre string .NET devient "" en PowerShell → [NullString]::Value.
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] $Object)
     $json = ConvertTo-Json -InputObject $Object -Depth 6
-    $tmp = "$Path.tmp-$PID"
+    $tmp = "$Path.tmp-" + [guid]::NewGuid().ToString('N')
     [System.IO.File]::WriteAllText($tmp, $json, $script:Utf8NoBom)
-    if (Test-Path -LiteralPath $Path) {
-        [System.IO.File]::Replace($tmp, $Path, $null)
-    } else {
-        [System.IO.File]::Move($tmp, $Path)
+    try {
+        Invoke-GTRetry {
+            if ([System.IO.File]::Exists($Path)) {
+                [System.IO.File]::Replace($tmp, $Path, [System.Management.Automation.Language.NullString]::Value)
+            } else {
+                [System.IO.File]::Move($tmp, $Path)
+            }
+        }
+    } finally {
+        if ([System.IO.File]::Exists($tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Use-GTDataLock {
+    # Sérialise lecture + modification + écriture des fichiers de données entre CLI, tâche et serveur.
+    param([Parameter(Mandatory)] [scriptblock] $Action)
+    $m = New-Object System.Threading.Mutex($false, 'Local\git-tools-data')
+    $own = $false
+    try {
+        try { $own = $m.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] { $own = $true }
+        return (& $Action)
+    } finally {
+        if ($own) { $m.ReleaseMutex() }
+        $m.Dispose()
     }
 }
 
@@ -86,16 +115,25 @@ function Get-GTConfig {
             }
         }
     }
+    # Valeurs éditées à la main : bornées plutôt que de faire échouer le produit.
+    $iv = 30
+    if (-not [int]::TryParse([string]$cfg.intervalMin, [ref]$iv)) { $iv = 30 }
+    $cfg.intervalMin = [math]::Min(240, [math]::Max(5, $iv))
+    $gl = 400
+    if (-not [int]::TryParse([string]$cfg.graphLimit, [ref]$gl)) { $gl = 400 }
+    $cfg.graphLimit = [math]::Min(5000, [math]::Max(50, $gl))
     return $cfg
 }
 
 function Set-GTConfigValue {
     param([Parameter(Mandatory)] [string] $Name, $Value)
     if (-not $script:DefaultConfig.Contains($Name)) { throw "Réglage inconnu : $Name" }
-    $cfg = Get-GTConfig
-    $cfg[$Name] = $Value
-    Write-GTJson (Join-Path (Get-GTDataDir) 'config.json') $cfg
-    return $cfg
+    return Use-GTDataLock {
+        $cfg = Get-GTConfig
+        $cfg[$Name] = $Value
+        Write-GTJson (Join-Path (Get-GTDataDir) 'config.json') $cfg
+        $cfg
+    }
 }
 
 # ---------------------------------------------------------------- journal (SA-12, ENF-10)
@@ -112,7 +150,7 @@ function Write-GTLog {
         $stamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         $proj = if ($Project) { " [$Project]" } else { '' }
         $line = "$stamp $($Level.PadRight(5))$proj $Message`r`n"
-        [System.IO.File]::AppendAllText($file, $line, $script:Utf8NoBom)
+        Invoke-GTRetry { [System.IO.File]::AppendAllText($file, $line, $script:Utf8NoBom) } 8
         $info = New-Object System.IO.FileInfo($file)
         if ($info.Length -gt $script:LogMaxBytes) { Limit-GTLog $file }
     } catch {
@@ -161,6 +199,29 @@ function ConvertTo-GTArgString {
     return ($parts -join ' ')
 }
 
+$script:GitExe = $null
+function Get-GTGitExe {
+    # Chemin complet de git, résolu par le PATH uniquement : un git.exe déposé dans un dépôt cloné
+    # (dossier courant) n'est jamais exécuté (classe CVE-2020-27955).
+    if (-not $script:GitExe) {
+        $c = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $c) { throw 'git est introuvable. Installez Git for Windows puis rouvrez le terminal.' }
+        $script:GitExe = $c.Source
+    }
+    return $script:GitExe
+}
+
+function Get-GTPowerShellExe {
+    # Windows PowerShell 5.1 par son chemin complet (même raison).
+    if ($env:SystemRoot) {
+        $p = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    $c = Get-Command powershell, pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { return $c.Source }
+    throw 'Windows PowerShell est introuvable.'
+}
+
 function Invoke-Git {
     <#
       Lance git sans fenêtre, sans invite, sortie en UTF-8.
@@ -177,7 +238,7 @@ function Invoke-Git {
     $base = @('-c', 'core.quotepath=false', '-c', 'gc.auto=0', '-c', 'credential.interactive=false',
               '-c', 'i18n.logOutputEncoding=UTF-8', '-c', 'color.ui=false')
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'git'
+    $psi.FileName = Get-GTGitExe
     $psi.Arguments = ConvertTo-GTArgString ($base + $Arguments)
     $psi.WorkingDirectory = $Repo
     $psi.UseShellExecute = $false
@@ -195,6 +256,18 @@ function Invoke-Git {
         SSH_ASKPASS         = ''
         LC_ALL              = 'C'   # messages git en anglais : analyse stable
     }
+    # ssh ne connaît pas GIT_TERMINAL_PROMPT : sans BatchMode il attendrait une saisie invisible (ENF-08).
+    if ($Arguments.Count -and $Arguments[0] -in @('push', 'fetch', 'pull', 'ls-remote', 'clone') -and
+        -not $env:GIT_SSH_COMMAND -and -not $env:GIT_SSH) {
+        $sshCfg = $null
+        try {
+            $q = New-Object System.Diagnostics.ProcessStartInfo
+            $q.FileName = Get-GTGitExe; $q.Arguments = 'config --get core.sshCommand'; $q.WorkingDirectory = $Repo
+            $q.UseShellExecute = $false; $q.CreateNoWindow = $true; $q.RedirectStandardOutput = $true
+            $qp = [System.Diagnostics.Process]::Start($q); $sshCfg = $qp.StandardOutput.ReadToEnd().Trim(); $qp.WaitForExit()
+        } catch { }
+        if (-not $sshCfg) { $envs['GIT_SSH_COMMAND'] = 'ssh -o BatchMode=yes' }
+    }
     foreach ($k in $Environment.Keys) { $envs[$k] = $Environment[$k] }
     foreach ($k in $envs.Keys) {
         if ($null -eq $envs[$k]) { $psi.EnvironmentVariables.Remove($k) }
@@ -204,7 +277,7 @@ function Invoke-Git {
     try {
         $p = [System.Diagnostics.Process]::Start($psi)
     } catch {
-        throw "git est introuvable. Installez Git for Windows puis rouvrez le terminal."
+        throw "Impossible de lancer git : $($_.Exception.Message)"
     }
     $p.StandardInput.Close()
     $outTask = $p.StandardOutput.ReadToEndAsync()
@@ -282,18 +355,23 @@ function Get-GTProjects { return Get-GTList 'projects' }
 
 function Add-GTProject {
     param([Parameter(Mandatory)] [string] $Root)
-    $items = @(Get-GTProjects)
-    foreach ($i in $items) { if (Test-GTSamePath $i $Root) { return $false } }
-    Set-GTList 'projects' ($items + $Root)
-    return $true
+    return Use-GTDataLock {
+        $items = @(Get-GTProjects)
+        $known = $false
+        foreach ($i in $items) { if (Test-GTSamePath $i $Root) { $known = $true } }
+        if (-not $known) { Set-GTList 'projects' ($items + $Root) }
+        -not $known
+    }
 }
 
 function Remove-GTProject {
     param([Parameter(Mandatory)] [string] $Root)
-    $items = @(Get-GTProjects)
-    $kept = @($items | Where-Object { -not (Test-GTSamePath $_ $Root) })
-    Set-GTList 'projects' $kept
-    return ($kept.Count -ne $items.Count)
+    return Use-GTDataLock {
+        $items = @(Get-GTProjects)
+        $kept = @($items | Where-Object { -not (Test-GTSamePath $_ $Root) })
+        Set-GTList 'projects' $kept
+        $kept.Count -ne $items.Count
+    }
 }
 
 function Test-GTProjectTracked {
@@ -305,8 +383,10 @@ function Test-GTProjectTracked {
 function Add-GTRecent {
     # 15 derniers projets ouverts dans le visualiseur (VI-32).
     param([Parameter(Mandatory)] [string] $Root)
-    $items = @($Root) + @(Get-GTList 'recent' | Where-Object { -not (Test-GTSamePath $_ $Root) })
-    Set-GTList 'recent' @($items | Select-Object -First 15)
+    Use-GTDataLock {
+        $items = @($Root) + @(Get-GTList 'recent' | Where-Object { -not (Test-GTSamePath $_ $Root) })
+        Set-GTList 'recent' @($items | Select-Object -First 15)
+    } | Out-Null
 }
 
 # ---------------------------------------------------------------- divers
@@ -449,4 +529,4 @@ function Initialize-GTConsole {
     try { [Console]::OutputEncoding = $script:Utf8NoBom } catch { }
 }
 
-Export-ModuleMember -Function *-GT*, Invoke-Git, Get-GitValue, ConvertTo-GTArgString, Get-GTDataDir
+Export-ModuleMember -Function *-GT*, Invoke-Git, Get-GitValue, ConvertTo-GTArgString, Get-GTDataDir, Get-GTGitExe, Get-GTPowerShellExe

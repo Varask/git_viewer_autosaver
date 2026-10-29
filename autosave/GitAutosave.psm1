@@ -13,6 +13,7 @@ $script:CommitterEnv = @{
 }
 $script:TaskName = 'git-tools-autosave'
 $script:MutexName = 'Local\git-tools-autosave'
+$script:TaskCache = $null
 
 # ---------------------------------------------------------------- lecture de l'état du projet
 
@@ -112,6 +113,12 @@ function Remove-AutosaveObsolete {
     foreach ($s in Get-AutosaveSeries $Repo) {
         $tip = Get-GitValue $Repo @('rev-parse', '-q', '--verify', "refs/heads/$($s.Branch)^{commit}")
         if ($tip -eq $s.Base) { continue }
+        # RG-02 : seulement si la branche a AVANCÉ. Après un reset, un amend ou un rebase, la série est
+        # précisément ce qui permet de récupérer le travail : elle est conservée (principe : dans le doute, ne rien faire).
+        if ($tip) {
+            $adv = Invoke-Git $Repo @('merge-base', '--is-ancestor', $s.Base, $tip) -AllowFail
+            if ($adv.ExitCode -ne 0) { continue }
+        }
         $r = Invoke-Git $Repo @('update-ref', '-d', $s.Ref, $s.Tip) -AllowFail
         if ($r.ExitCode -ne 0) {
             Write-GTLog autosave WARN $Repo "Suppression impossible de la série $($s.Branch) : $($r.Err)"
@@ -123,7 +130,7 @@ function Remove-AutosaveObsolete {
         if ($Config.shareRemote) {
             $remote = Get-AutosaveRemote $Repo $s.Branch
             if ($remote) {
-                $p = Invoke-Git $Repo @('push', '--quiet', $remote, ":$($s.Ref)") -TimeoutSec 60 -AllowFail
+                $p = Invoke-Git $Repo @('push', '--quiet', '--no-verify', $remote, ":$($s.Ref)") -TimeoutSec 60 -AllowFail
                 if ($p.ExitCode -ne 0) {
                     Write-GTLog autosave WARN $Repo "Série non retirée du distant $remote : $($p.Err)"
                 }
@@ -239,7 +246,7 @@ function Invoke-AutosaveProject {
         Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue
     }
     # Mise à jour conditionnelle : échoue si la série a bougé entre-temps.
-    $old = if ($last) { $last } else { '0' * 40 }
+    $old = if ($last) { $last } else { '' }   # vide = la ref ne doit pas exister (SHA-1 comme SHA-256)
     [void](Invoke-Git $Repo @('update-ref', '-m', 'git-tools autosave', $ref, $commit, $old))
     Write-GTLog autosave SAVE $Repo "$label sur $branch ($($commit.Substring(0,7)))"
 
@@ -247,7 +254,7 @@ function Invoke-AutosaveProject {
     if ($Config.shareRemote) {
         $remote = Get-AutosaveRemote $Repo $branch
         if ($remote) {
-            $p = Invoke-Git $Repo @('push', '--quiet', $remote, "+$($ref):$($ref)") -TimeoutSec 60 -AllowFail
+            $p = Invoke-Git $Repo @('push', '--quiet', '--no-verify', $remote, "+$($ref):$($ref)") -TimeoutSec 60 -AllowFail
             if ($p.ExitCode -ne 0) { Write-GTLog autosave WARN $Repo "Partage sur $remote impossible : $($p.Err)" }
         } else {
             Write-GTLog autosave WARN $Repo 'Partage demandé mais aucun dépôt distant configuré.'
@@ -337,22 +344,56 @@ function Resolve-AutosavePoint {
     throw "Point de reprise « $Target » non reconnu : utilisez un numéro, un identifiant ou rien."
 }
 
+function Use-AutosaveLock {
+    # Même verrou que les passages : rien ne s'intercale entre le filet de sécurité et la restauration.
+    param([scriptblock] $Action, [int] $TimeoutMs = 30000)
+    $m = New-Object System.Threading.Mutex($false, $script:MutexName)
+    $own = $false
+    try {
+        try { $own = $m.WaitOne($TimeoutMs) } catch [System.Threading.AbandonedMutexException] { $own = $true }
+        if (-not $own) { throw 'Un passage de sauvegarde est en cours : réessayez dans un instant.' }
+        return (& $Action)
+    } finally {
+        if ($own) { $m.ReleaseMutex() }
+        $m.Dispose()
+    }
+}
+
+function Invoke-AutosaveProjectLocked {
+    param([Parameter(Mandatory)] [string] $Repo)
+    return Use-AutosaveLock { Invoke-AutosaveProject -Repo $Repo }
+}
+
 function Restore-GTCommitFiles {
     <#
-      Remet les fichiers dans l'état de $Sha, sans changer la branche ni l'index.
-      Un point de reprise de l'état courant est pris avant (filet de sécurité).
+      Remet les fichiers dans l'état de $Sha, sans changer la branche ni l'index (SA-08, VI-16, ADR-07).
+      Le travail en cours est d'abord sauvegardé ; si c'est impossible (hors branche, opération en cours…),
+      la restauration est REFUSÉE plutôt que d'écraser des modifications sans copie (FC1).
     #>
     param([Parameter(Mandatory)] [string] $Repo, [Parameter(Mandatory)] [string] $Sha)
-    $safety = $null
-    try {
-        $r = Invoke-AutosaveProject -Repo $Repo
-        if ($r.Result -eq 'Saved') { $safety = $r.Point }
-    } catch {
-        Write-GTLog autosave WARN $Repo "Filet de sécurité impossible avant restauration : $($_.Exception.Message)"
+    return Use-AutosaveLock {
+        $dirty = (Invoke-Git $Repo @('status', '--porcelain', '--untracked-files=all')).Out.Trim()
+        $safety = $null
+        if ($dirty) {
+            $r = $null
+            try { $r = Invoke-AutosaveProject -Repo $Repo } catch {
+                Write-GTLog autosave WARN $Repo "Filet de sécurité impossible : $($_.Exception.Message)"
+            }
+            if (-not $r -or $r.Result -notin @('Saved', 'Unchanged')) {
+                $why = if ($r) { " ($($r.Message))" } else { '' }
+                throw "Restauration refusée : votre travail en cours n'a pas pu être sauvegardé d'abord$why. Committez-le ou mettez-le de côté, puis recommencez."
+            }
+            if ($r.Result -eq 'Saved') { $safety = $r.Point }
+            else {
+                $b = Get-GitValue $Repo @('symbolic-ref', '-q', '--short', 'HEAD')
+                $h = Get-GitValue $Repo @('rev-parse', 'HEAD')
+                $safety = Get-GitValue $Repo @('rev-parse', '-q', '--verify', "refs/autosave/$b/$h")
+            }
+        }
+        [void](Invoke-Git $Repo @('restore', "--source=$Sha", '--worktree', '--', ':/'))
+        Write-GTLog autosave INFO $Repo "Fichiers restaurés depuis $($Sha.Substring(0,7))."
+        [pscustomobject]@{ Restored = $Sha; Safety = $safety }
     }
-    [void](Invoke-Git $Repo @('restore', "--source=$Sha", '--worktree', '--', ':/'))
-    Write-GTLog autosave INFO $Repo "Fichiers restaurés depuis $($Sha.Substring(0,7))."
-    return [pscustomobject]@{ Restored = $Sha; Safety = $safety }
 }
 
 # ---------------------------------------------------------------- hook post-commit (ADR-06, RG-09)
@@ -370,6 +411,16 @@ function Install-AutosaveHook {
     param([Parameter(Mandatory)] [string] $Repo)
     $hook = Get-AutosaveHookPath $Repo
     if (-not $hook) { return 'existing' }
+    # core.hooksPath : dossier partagé entre projets ou versionné dans le projet → on n'y écrit pas (RG-09, FC1).
+    if (Get-GitValue $Repo @('config', '--get', 'core.hooksPath')) { return 'existing' }
+    $gitDir = Get-AutosaveGitDir $Repo
+    $hookFull = [System.IO.Path]::GetFullPath($hook)
+    if (-not $gitDir -or -not $hookFull.StartsWith([System.IO.Path]::GetFullPath($gitDir), [System.StringComparison]::OrdinalIgnoreCase)) {
+        $common = Get-GitValue $Repo @('rev-parse', '--path-format=absolute', '--git-common-dir')
+        if (-not $common -or -not $hookFull.StartsWith([System.IO.Path]::GetFullPath((ConvertTo-GTNativePath $common)), [System.StringComparison]::OrdinalIgnoreCase)) {
+            return 'existing'
+        }
+    }
     $state = 'installed'
     if (Test-Path -LiteralPath $hook) {
         $content = [System.IO.File]::ReadAllText($hook)
@@ -378,17 +429,29 @@ function Install-AutosaveHook {
     }
     $dir = Split-Path -Parent $hook
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $entry = (Join-Path $PSScriptRoot 'git-autosave.ps1').Replace('\', '/')
-    $text = @"
-#!/bin/sh
-# $($script:HookMarker) — installé par git-tools, retiré par « git autosave remove ».
-# Supprime en arrière-plan les points de reprise devenus obsolètes après ce commit (SA-05).
-root="`$(git rev-parse --show-toplevel)"
-powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -File "$entry" cleanup "`$root" </dev/null >/dev/null 2>&1 &
-exit 0
-"@
+    $text = "#!/bin/sh`n# $($script:HookMarker) — installé par git-tools, retiré par « git autosave remove ».`n" +
+            "# Supprime en arrière-plan les points de reprise devenus obsolètes après ce commit (SA-05).`n" +
+            "# Lanceur sans fenêtre : ne masque ni ne réduit jamais le terminal de l'utilisateur (FC4).`n" +
+            'root="$(git rev-parse --show-toplevel)"' + "`n" +
+            (Get-AutosaveLauncherLine 'cleanup "$root"') + " </dev/null >/dev/null 2>&1 &`nexit 0`n"
+
     Write-GTText $hook ($text -replace "`r`n", "`n")
     return $state
+}
+
+function ConvertTo-ShPath([string] $P) { return '"' + $P.Replace('\', '/') + '"' }
+
+function Get-AutosaveLauncherLine {
+    # Commande sh qui lance git-autosave.ps1 sans fenêtre et sans hériter de la console (ADR-05).
+    param([string] $Arguments, $Config = (Get-GTConfig))
+    $ps1 = ConvertTo-ShPath (Join-Path $PSScriptRoot 'git-autosave.ps1')
+    $sys = if ($env:SystemRoot) { $env:SystemRoot } else { 'C:\Windows' }
+    if ($Config.launcher -eq 'wscript') {
+        $vbs = ConvertTo-ShPath (Join-Path $PSScriptRoot 'run-hidden.vbs')
+        return "$(ConvertTo-ShPath (Join-Path $sys 'System32\wscript.exe')) //B //Nologo $vbs $ps1 $Arguments"
+    }
+    $ps = ConvertTo-ShPath (Get-GTPowerShellExe)
+    return "$(ConvertTo-ShPath (Join-Path $sys 'System32\conhost.exe')) --headless $ps -NoProfile -NonInteractive -File $ps1 $Arguments"
 }
 
 function Uninstall-AutosaveHook {
@@ -421,12 +484,15 @@ function Get-AutosaveTask {
 function Register-AutosaveTask {
     param($Config = (Get-GTConfig))
     $ps1 = Join-Path $PSScriptRoot 'git-autosave.ps1'
-    $psArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -File `"$ps1`" run --scheduled"
+    $sys = $env:SystemRoot
+    $work = $sys
     if ($Config.launcher -eq 'wscript') {
         $vbs = Join-Path $PSScriptRoot 'run-hidden.vbs'
-        $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo `"$vbs`" `"$ps1`""
+        $action = New-ScheduledTaskAction -Execute (Join-Path $sys 'System32\wscript.exe') -WorkingDirectory $work `
+            -Argument "//B //Nologo `"$vbs`" `"$ps1`" run --scheduled"
     } else {
-        $action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe $psArgs"
+        $action = New-ScheduledTaskAction -Execute (Join-Path $sys 'System32\conhost.exe') -WorkingDirectory $work `
+            -Argument "--headless `"$(Get-GTPowerShellExe)`" -NoProfile -NonInteractive -File `"$ps1`" run --scheduled"
     }
     $start = (Get-Date).AddMinutes(1)
     $start = $start.AddSeconds(-$start.Second).AddMilliseconds(-$start.Millisecond)
@@ -440,11 +506,13 @@ function Register-AutosaveTask {
         -Description 'git-tools : points de reprise automatiques des projets suivis (git autosave).'
     Register-ScheduledTask -TaskName $script:TaskName -InputObject $task -Force | Out-Null
     [void](Set-GTConfigValue 'scheduleStart' $start.ToUniversalTime().ToString('o'))
+    $script:TaskCache = $null
 }
 
 function Unregister-AutosaveTask {
     if (Get-AutosaveTask) {
         Unregister-ScheduledTask -TaskName $script:TaskName -Confirm:$false
+        $script:TaskCache = $null
         return $true
     }
     return $false
@@ -453,12 +521,15 @@ function Unregister-AutosaveTask {
 function Get-AutosaveSchedule {
     # État pour l'aide et le visualiseur (VI-07) : active ; nextRun ; intervalMin.
     $cfg = Get-GTConfig
-    $task = Get-AutosaveTask
-    $active = $false
-    if ($task) { $active = ($task.State -ne 'Disabled') }
+    # La requête au planificateur coûte ~100 ms : mise en cache 30 s (le visualiseur interroge chaque seconde).
+    if (-not $script:TaskCache -or ((Get-Date) - $script:TaskCache.At).TotalSeconds -gt 30) {
+        $task = Get-AutosaveTask
+        $script:TaskCache = @{ At = Get-Date; Active = ($task -and $task.State -ne 'Disabled') }
+    }
+    $active = [bool]$script:TaskCache.Active
     $next = $null
     if ($active) { $next = Get-GTNextRun $cfg }
     return [pscustomobject]@{ Active = $active; NextRun = $next; IntervalMin = [int]$cfg.intervalMin }
 }
 
-Export-ModuleMember -Function *-Autosave*, Restore-GTCommitFiles
+Export-ModuleMember -Function *-Autosave*, Restore-GTCommitFiles, Use-AutosaveLock, Invoke-AutosaveProjectLocked

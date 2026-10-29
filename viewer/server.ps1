@@ -9,6 +9,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Ne jamais travailler depuis le dossier d'un dépôt : un exécutable piégé n'y serait pas trouvé (🔴 revue L5).
+if ($env:SystemRoot) { Set-Location -LiteralPath $env:SystemRoot; [Environment]::CurrentDirectory = $env:SystemRoot }
 $module = Join-Path $PSScriptRoot 'GitViewer.psm1'
 Import-Module $module -DisableNameChecking
 
@@ -117,15 +119,18 @@ try {
                 foreach ($pair in $query.Split('&')) { $kv = $pair.Split('=', 2); if ($kv.Count -eq 2) { $q[$kv[0]] = [System.Uri]::UnescapeDataString($kv[1]) } }
                 $hostOk = ($headers['host'] -eq "127.0.0.1:$($S.port)" -or $headers['host'] -eq "localhost:$($S.port)")
                 $site = [string]$headers['sec-fetch-site']
-                if (-not $hostOk -or $q['t'] -ne $S.token -or ($site -and $site -notin @('same-origin', 'none'))) {
+                if (-not $hostOk -or $q['t'] -cne $S.token -or ($site -and $site -notin @('same-origin', 'none'))) {
                     $b = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 403 Forbidden`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
                     $stream.Write($b, 0, $b.Length); return
                 }
-                if ([int]$S.presence -ge 6) {
+                $full = $false
+                [System.Threading.Monitor]::Enter($S.SyncRoot)
+                try { if ([int]$S.presence -ge 6) { $full = $true } else { $S.presence = [int]$S.presence + 1 } }
+                finally { [System.Threading.Monitor]::Exit($S.SyncRoot) }
+                if ($full) {
                     $b = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 503 Service Unavailable`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
                     $stream.Write($b, 0, $b.Length); return
                 }
-                [System.Threading.Monitor]::Enter($S.SyncRoot); try { $S.presence = [int]$S.presence + 1 } finally { [System.Threading.Monitor]::Exit($S.SyncRoot) }
                 try {
                     $b = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: text/event-stream`r`nCache-Control: no-store`r`nConnection: keep-alive`r`n`r`nretry: 2000`n`n")
                     $stream.Write($b, 0, $b.Length); $stream.Flush()

@@ -3,7 +3,20 @@
 (function () {
   'use strict';
 
-  const TOKEN = document.querySelector('meta[name="gt-token"]').content;
+  // Jeton de session : transmis par le lanceur dans le fragment (#t=…), jamais envoyé au serveur ni écrit
+  // dans la page ; conservé pour cet onglet seulement (rechargement).
+  const TOKEN = (() => {
+    let t = '';
+    const m = location.hash.match(/[#&]t=([0-9a-f]{16,128})/);
+    if (m) {
+      t = m[1];
+      try { sessionStorage.setItem('gt-token', t); } catch (e) { /* onglet sans stockage */ }
+      history.replaceState(null, '', location.pathname + location.search);
+    } else {
+      try { t = sessionStorage.getItem('gt-token') || ''; } catch (e) { t = ''; }
+    }
+    return t;
+  })();
   const $ = id => document.getElementById(id);
   const store = {
     get(k, d) { try { const v = localStorage.getItem('gt-' + k); return v == null ? d : v; } catch (e) { return d; } },
@@ -119,7 +132,9 @@
         setOffline(false);
         await applyState(st);
       } catch (e) {
-        if (!e.status) setOffline(true); else toast(e.message, true);
+        if (!e.status) setOffline(true);
+        else if (e.status === 403) { expired(); }
+        else toast(e.message, true);
       } finally {
         polling = null;
         if (!S.stopped) pollTimer = setTimeout(poll, document.hidden ? 5000 : 1000);
@@ -133,6 +148,11 @@
     if (!window.EventSource) return;
     const es = new EventSource('/api/presence?t=' + encodeURIComponent(TOKEN));
     es.addEventListener('project', ev => { if (S.seq !== null && Number(ev.data) !== S.seq) poll(); });
+  }
+
+  function expired() {
+    S.stopped = true; clearTimeout(pollTimer);
+    banner('Cette page n’est plus reliée au visualiseur (redémarré ou ouverte sans jeton). Relancez « git viewer » : un nouvel onglet s’ouvrira.', true);
   }
 
   function setOffline(off) {
@@ -727,6 +747,7 @@
   lim.value = String(S.limit);
   lim.addEventListener('change', () => { S.limit = Number(lim.value); store.set('limit', lim.value); loadGraph(); });
 
+  if (!TOKEN) { expired(); return; }
   presence();
   poll();
 })();

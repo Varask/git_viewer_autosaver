@@ -48,7 +48,8 @@ function Start-Server([string] $Root) {
     $server = Join-Path $PSScriptRoot 'server.ps1'
     $a = @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-File', $server)
     if ($Root) { $a += @('-Project', $Root) }
-    Start-Process -FilePath 'powershell.exe' -ArgumentList (ConvertTo-GTArgString $a) -WindowStyle Hidden | Out-Null
+    Start-Process -FilePath (Get-GTPowerShellExe) -ArgumentList (ConvertTo-GTArgString $a) -WindowStyle Hidden `
+        -WorkingDirectory $env:SystemRoot | Out-Null
     $deadline = (Get-Date).AddSeconds(8)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 150

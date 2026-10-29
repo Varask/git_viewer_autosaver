@@ -23,7 +23,7 @@ function git(repo, args, opts = {}) {
 }
 const val = (repo, args) => { const r = git(repo, args, { allowFail: true }); return r.code === 0 && r.out.trim() ? r.out.trim() : null; };
 
-function start({ repo, port = 0, token = 'test-token', autosave = {} }) {
+function start({ repo, port = 0, token = 'a1b2c3d4e5f60718293a4b5c6d7e8f90', autosave = {} }) {
   const shared = { project: repo, seq: 1, presence: 0, stopped: false, autosave, nextRun: Date.now() + (autosave.nextInMs != null ? autosave.nextInMs : 12 * 60000) };
   const json = (res, status, obj) => { const b = Buffer.from(JSON.stringify(obj)); res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': b.length, 'Cache-Control': 'no-store' }); res.end(b); };
   const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -161,8 +161,7 @@ function start({ repo, port = 0, token = 'test-token', autosave = {} }) {
     if (!u.pathname.startsWith('/api/')) {
       const map = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/styles.css': 'styles.css', '/favicon.svg': 'favicon.svg' };
       const f = map[u.pathname]; if (!f) { res.writeHead(404); return res.end(); }
-      let body = fs.readFileSync(path.join(WWW, f), 'utf8');
-      if (f === 'index.html') body = body.replace('__GITTOOLS_TOKEN__', token);
+      const body = fs.readFileSync(path.join(WWW, f), 'utf8');
       const type = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' }[f.split('.').pop()];
       const headers = { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' };
       if (f === 'index.html') headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'";

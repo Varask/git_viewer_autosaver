@@ -35,7 +35,7 @@ beforeEach(async () => {
   srv = await start({ repo });
   page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
   page.on('pageerror', e => { throw e; });
-  await page.goto(`http://127.0.0.1:${srv.port}/`);
+  await page.goto(`http://127.0.0.1:${srv.port}/#t=${srv.token}`);
   await page.waitForSelector('#graph .row');
 });
 afterEach(async (t) => {
@@ -199,6 +199,18 @@ test('ENF-11 : à 375 px, noms de branches entiers et cibles ≥ 32 px', async (
   assert.deepEqual(small, [], 'contrôles trop petits');
   const barH = await page.$eval('#bar', e => e.getBoundingClientRect().height);
   assert.ok(barH <= 130, `en-tête de ${barH} px`);
+});
+
+test('ENF-07 : le jeton quitte l’URL, la page reste reliée au rechargement ; sans jeton, message clair', async () => {
+  assert.equal(new URL(page.url()).hash, '', 'jeton encore visible dans l’URL');
+  const html = await page.evaluate(async () => (await fetch('/')).text());
+  assert.ok(!html.includes(srv.token), 'jeton présent dans la page servie');
+  await page.reload(); await page.waitForSelector('#graph .row');
+  const p2 = await browser.newPage();
+  await p2.goto(`http://127.0.0.1:${srv.port}/`);
+  await p2.waitForSelector('#banner:not([hidden])');
+  assert.match(await p2.locator('#banner').textContent(), /Relancez « git viewer »/);
+  await p2.close();
 });
 
 test('ENF-07 : l’API refuse une requête sans jeton', async () => {

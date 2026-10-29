@@ -32,8 +32,12 @@ Write-Host 'Installation de git-tools'
 if ($PSVersionTable.PSVersion.Major -lt 5 -or ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -lt 1)) {
     Stop-Install "PowerShell 5.1 ou plus récent est nécessaire (version actuelle : $($PSVersionTable.PSVersion))."
 }
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+    Stop-Install "PowerShell est en mode de langage restreint ($($ExecutionContext.SessionState.LanguageMode)) sur ce poste : git-tools ne peut pas fonctionner. Transmettez docs\NOTE-DSI.md à votre service informatique."
+}
 $gitOk = $false
-try { $gv = & git --version 2>$null; $gitOk = ($LASTEXITCODE -eq 0) } catch { }
+$gitCmd = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+try { if ($gitCmd) { $gv = & $gitCmd.Source --version 2>$null; $gitOk = ($LASTEXITCODE -eq 0) } } catch { }
 if (-not $gitOk) { Stop-Install "git est introuvable. Installez Git for Windows (sans droits administrateur : option « Only for me »), puis rouvrez PowerShell." }
 if ($gv -match '(\d+)\.(\d+)') {
     if ([int]$Matches[1] -lt 2 -or ([int]$Matches[1] -eq 2 -and [int]$Matches[2] -lt 25)) {
@@ -59,6 +63,12 @@ if ($blocked.Count) {
     Write-Host "Si votre poste l'interdit, transmettez la note docs\NOTE-DSI.md à votre service informatique." -ForegroundColor Yellow
     exit 1
 }
+
+# ---------------------------------------------------------------- dossier cible
+# Toujours un dossier dédié nommé « git-tools » : la désinstallation ne doit jamais pouvoir
+# supprimer autre chose que ce qu'elle a installé.
+$Destination = [IO.Path]::GetFullPath($Destination).TrimEnd('\')
+if ((Split-Path -Leaf $Destination) -ne 'git-tools') { $Destination = Join-Path $Destination 'git-tools' }
 
 # ---------------------------------------------------------------- copie des fichiers
 $parts = @('common')
@@ -94,13 +104,15 @@ Step "Données utilisateur : $data"
 
 # ---------------------------------------------------------------- commandes (TR-01, TR-03)
 function Set-GitAlias([string] $Name, [string] $Ps1) {
-    $value = '!powershell.exe -NoProfile -NoLogo -File "' + $Ps1.Replace('\', '/') + '"'
-    $cur = & git config --global --get "alias.$Name" 2>$null
-    if ($cur -and $cur -notmatch 'git-tools') {
+    # Passage par Invoke-Git : citation maîtrisée, chemins avec espaces corrects sous PowerShell 5.1 (ENF-14).
+    $psExe = (Get-GTPowerShellExe).Replace('\', '/')
+    $value = '!"' + $psExe + '" -NoProfile -NoLogo -File "' + $Ps1.Replace('\', '/') + '"'
+    $cur = Get-GitValue $env:USERPROFILE @('config', '--global', '--get', "alias.$Name")
+    if ($cur -and $cur -notmatch "git-$Name\.ps1") {
         Write-Host "  ! L'alias git « $Name » existe déjà et n'appartient pas à git-tools : il n'est pas modifié. Utilisez « git-$Name »." -ForegroundColor Yellow
         return
     }
-    & git config --global "alias.$Name" $value
+    [void](Invoke-Git $env:USERPROFILE @('config', '--global', "alias.$Name", $value))
 }
 
 $installed = @()
@@ -112,7 +124,8 @@ if ($parts -contains 'autosave') {
     try {
         Register-AutosaveTask
         $sched = Get-AutosaveSchedule
-        Step "Sauvegarde périodique toutes les $($sched.IntervalMin) min (premier passage à $($sched.NextRun.ToString('HH:mm')))."
+        $first = if ($sched.NextRun) { " (premier passage à $($sched.NextRun.ToString('HH:mm')))" } else { '' }
+        Step "Sauvegarde périodique toutes les $($sched.IntervalMin) min$first."
     } catch {
         Write-Host "  ! Tâche planifiée impossible à créer : $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Host '    La sauvegarde reste utilisable avec « git autosave run ». Voir le guide, « Dépannage ».' -ForegroundColor Yellow

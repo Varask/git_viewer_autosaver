@@ -239,6 +239,66 @@ Test-Case 'RG-09 / RG-11 : hook tiers intact ; retirer conserve les points' {
     Assert-Equal (Get-Series $r2).Count 1 'points conservés'
 }
 
+Test-Case 'Revue 🔴1 : réécrire un fichier de données existant (réglages, projets, récents)' {
+    [void](Set-GTConfigValue 'intervalMin' 20)
+    [void](Set-GTConfigValue 'intervalMin' 25)
+    Assert-Equal (Get-GTConfig).intervalMin 25 'réglage réécrit'
+    $a = New-TestRepo 'deux'; $b = New-TestRepo 'deux'
+    Set-Projects @()
+    [void](Add-GTProject $a); [void](Add-GTProject $b)
+    Assert-Equal @(Get-GTProjects).Count 2 'deuxième projet'
+    Add-GTRecent $a; Add-GTRecent $b
+    Assert-Equal @(Get-GTList 'recent')[0] $b 'récents'
+    Assert-Equal @(Get-ChildItem -LiteralPath (Get-GTDataDir) -Filter '*.tmp-*').Count 0 'fichiers temporaires restants'
+    [void](Set-GTConfigValue 'intervalMin' 30)
+    Set-Projects @()
+}
+
+Test-Case 'Revue 🔴2 : restauration refusée si le travail ne peut pas être sauvegardé (HEAD détaché)' {
+    $r = New-TestRepo
+    Write-File $r 'a.txt' "v1`n"; [void](Invoke-AutosaveProject -Repo $r -Config $cfg)
+    $point = (Get-Series $r)[0].Tip
+    [void](Invoke-Git $r @('switch', '-q', '--detach', 'HEAD'))
+    Write-File $r 'a.txt' "précieux`n"
+    $err = $null
+    try { [void](Restore-GTCommitFiles $r $point) } catch { $err = $_.Exception.Message }
+    Assert-True ($err -match 'Restauration refusée') "aucune erreur : $err"
+    Assert-Equal ([System.IO.File]::ReadAllText((Join-Path $r 'a.txt'))) "précieux`n" 'travail écrasé'
+}
+
+Test-Case 'Revue 🔴4 : git et powershell lancés par chemin complet' {
+    Assert-True ([System.IO.Path]::IsPathRooted((Get-GTGitExe))) 'git'
+    Assert-True ([System.IO.Path]::IsPathRooted((Get-GTPowerShellExe))) 'powershell'
+    $r = New-TestRepo 'piège'
+    Write-GTText (Join-Path $r 'git.cmd') "@echo PIEGE"
+    Push-Location -LiteralPath $r
+    try { Assert-True ((Invoke-Git $r @('--version')).Out -match '^git version') 'un git du dossier courant a été lancé' } finally { Pop-Location }
+}
+
+Test-Case 'Revue 🟡1 : série conservée après un reset (branche réécrite, pas avancée)' {
+    $r = New-TestRepo
+    Write-File $r 'b.txt' "b`n"; [void](Invoke-Git $r @('add', '-A')); [void](Invoke-Git $r @('commit', '-qm', 'deuxième'))
+    Write-File $r 'a.txt' "travail`n"; [void](Invoke-AutosaveProject -Repo $r -Config $cfg)
+    [void](Invoke-Git $r @('reset', '-q', '--hard', 'HEAD~1'))
+    [void](Remove-AutosaveObsolete -Repo $r -Config $cfg)
+    Assert-Equal (Get-Series $r).Count 1 'série supprimée après reset --hard'
+}
+
+Test-Case 'Revue 🟡2 : core.hooksPath → aucun hook écrit' {
+    $r = New-TestRepo
+    [void](Invoke-Git $r @('config', 'core.hooksPath', '.githooks'))
+    Assert-Equal (Install-AutosaveHook $r) 'existing' 'résultat'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $r '.githooks'))) 'hook écrit dans les fichiers du projet'
+}
+
+Test-Case 'Revue 🔴3 : le hook n’utilise pas -WindowStyle et lance tout par chemin complet' {
+    $r = New-TestRepo
+    [void](Install-AutosaveHook $r)
+    $h = [System.IO.File]::ReadAllText((Get-AutosaveHookPath $r))
+    Assert-True ($h -notmatch 'WindowStyle') 'WindowStyle présent'
+    Assert-True ($h -match 'conhost\.exe" --headless "[A-Za-z]:/') 'lanceur sans fenêtre absent'
+}
+
 Test-Case 'ENF-10 : journal limité à 1 Mo' {
     $line = 'x' * 1000
     1..1200 | ForEach-Object { Write-GTLog autosave INFO 'test' $line }
@@ -286,8 +346,10 @@ Test-Case 'ENF-07 / FC5 : hôte, jeton et origine contrôlés' {
     Assert-Equal (Req 'POST' '/api/action' @{ name = 'stageAll' } @{ 'sec-fetch-site' = 'cross-site' }).Status 403 'requête inter-sites'
     Assert-Equal (Req 'POST' '/api/action' @{ name = 'stageAll' } @{ origin = 'http://evil.example' }).Status 403 'origine étrangère'
     Assert-Equal (Req 'GET' '/api/state').Status 200 'requête légitime'
+    Assert-Equal (Req 'GET' '/api/state' $null @{ 'x-gittools-token' = 'JETON-TEST' }).Status 403 'jeton comparé sans la casse'
     $page = Req 'GET' '/'
-    Assert-True ($page.Text -match 'jeton-test') 'jeton injecté dans la page'
+    Assert-Equal $page.Status 200 'page'
+    Assert-True ($page.Text -notmatch 'jeton-test') 'le jeton ne doit jamais être écrit dans la page servie'
 }
 
 Test-Case 'VI-03 / VI-04 : état conforme au projet' {
@@ -364,9 +426,27 @@ Test-Case 'R-15 / RG-21 / VI-15 : branches ; suppression non fusionnée en deux 
     Assert-Equal (G $V @('branch', '--list', 'essai')) '' 'branche encore là'
 }
 
+Test-Case 'Revue 🟡4 : indexer « [ab].txt » n’indexe que lui' {
+    Write-File $V '[ab].txt' "x`n"; Write-File $V 'b.txt' "y`n"
+    Assert-True (Act 'stage' @{ paths = @('[ab].txt') }).Body.ok 'indexation'
+    Assert-Equal (G $V @('diff', '--cached', '--name-only')) '[ab].txt' 'fichiers indexés'
+    [void](Act 'unstageAll')
+    Remove-Item -LiteralPath (Join-Path $V '[ab].txt'), (Join-Path $V 'b.txt')
+}
+
+Test-Case 'Revue 🟡5 : fusion refusée avec un travail non committé' {
+    [void](Invoke-Git $V @('branch', 'pour-fusion'))
+    Write-File $V 'a.txt' "en cours`n"
+    $r = Act 'merge' @{ branch = 'pour-fusion' }
+    Assert-Equal $r.Status 409 'statut'
+    [void](Act 'discard' @{ path = 'a.txt' })
+    [void](Invoke-Git $V @('branch', '-D', 'pour-fusion'))
+}
+
 Test-Case 'RG-29 : noms de branche, identifiants et chemins invalides refusés' {
     Assert-Equal (Act 'createBranch' @{ branch = 'a b' }).Status 400 'espace'
     Assert-Equal (Act 'switch' @{ branch = '--orphan' }).Status 400 'option déguisée'
+    Assert-Equal (Act 'deleteBranch' @{ branch = '@{-1}' }).Status 400 'raccourci @{-1}'
     Assert-Equal (Act 'checkoutCommit' @{ sha = 'HEAD;rm' }).Status 400 'identifiant'
     Assert-Equal (Act 'stage' @{ paths = @('..\..\Windows\win.ini') }).Status 400 'chemin hors projet'
     Assert-Equal (Act 'discard' @{ path = 'C:\Windows\win.ini' }).Status 400 'chemin absolu'
