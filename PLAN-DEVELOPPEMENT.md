@@ -6,6 +6,19 @@
 
 ---
 
+## Avancement — 29/10/2026
+
+| Lot | État | Preuve |
+| --- | --- | --- |
+| L0 Reprise | ⚠️ Code existant (`E:\PROJETS\Git-tools`) non accessible depuis cette session : V1 réécrite d'après l'AF. ADR rédigés. | `docs/adr.md` |
+| L1 Spikes | ⏳ Solutions codées, validation sur poste réel à faire | `docs/RECETTE.md` § Spikes |
+| L2–L7 | ✅ Codés, revus (`code-reviewer`, `ui-finish-gate-reviewer`), corrections appliquées | historique git |
+| L8 Recette | ✅ E2E interface 18/18 · ⏳ `tests\Run-Tests.ps1` à exécuter sous Windows · ⏳ scénarios manuels | `tests/`, `docs/RECETTE.md` |
+| L9 Docs | ✅ Guide (7 thèmes), note DSI, fiche de recette | `docs/` |
+| Porte V1 (`reality-checker`) | ⏳ après exécution de la recette Windows | — |
+
+---
+
 ## 1. Rôle des agents dans le projet
 
 | Agent | Rôle sur git-tools | Intervient sur |
@@ -83,9 +96,9 @@ Ordre : **L0 → L1 → (L2 ∥ L5) → L3 → L4 → L6 → L7 → L8 → L9**.
 
 - [ ] Récupérer le code existant (`E:\PROJETS\Git-tools\git-tools`) dans ce dossier, premier commit « état de reprise ».
 - [ ] Code Reviewer + Reality Checker : **matrice de couverture** exigence par exigence (fait / partiel / absent / non conforme) sur l'existant → décide de ce qu'on garde.
-- [ ] Rédiger ADR-01 à ADR-11 (`docs/adr/`).
+- [x] Rédiger ADR-01 à ADR-11 (`docs/adr.md`).
 - [ ] Trancher les points ouverts bloquants (§5).
-- [ ] Git Workflow Master : conventions du dépôt git-tools (trunk-based, une branche par lot `feat/l2-moteur-autosave`, Conventional Commits, tag `v1.0.0`).
+- [x] Git Workflow Master : conventions du dépôt git-tools (trunk-based, une branche par lot `feat/l2-moteur-autosave`, Conventional Commits, tag `v1.0.0`).
 
 **Sortie** : ADR validés, matrice de couverture, backlog ordonné.
 
@@ -108,13 +121,13 @@ Ordre : **L0 → L1 → (L2 ∥ L5) → L3 → L4 → L6 → L7 → L8 → L9**.
 
 Exigences : SA-01 à SA-06, SA-08, RG-01 à RG-08, RG-11, ENF-01, ENF-03, ENF-09.
 
-- [ ] Module commun : appel git encapsulé (env. ADR-04, UTF-8, codes de retour), journal tournant 1 Mo (ENF-10).
-- [ ] Passage sur un projet : garde-fous RG-04 (fusion/rebase/cherry-pick/revert en cours), RG-05 (HEAD détaché), RG-06 (aucun commit), RG-08 (projet disparu).
-- [ ] Capture par index temporaire (ADR-02), détection « rien n'a changé » (ADR-03), numérotation 01, 02… (SA-03).
-- [ ] Nettoyage des séries obsolètes + option de conservation (SA-05, SA-06, RG-02).
-- [ ] Restauration avec filet de sécurité (ADR-07).
-- [ ] Isolation des erreurs : un projet en échec n'empêche pas les autres (ENF-09).
-- [ ] Tests Pester (unitaires sur dépôts temporaires) + scénarios **R-01 à R-06, R-08** automatisés.
+- [x] Module commun : appel git encapsulé (env. ADR-04, UTF-8, codes de retour), journal tournant 1 Mo (ENF-10).
+- [x] Passage sur un projet : garde-fous RG-04 (fusion/rebase/cherry-pick/revert en cours), RG-05 (HEAD détaché), RG-06 (aucun commit), RG-08 (projet disparu).
+- [x] Capture par index temporaire (ADR-02), détection « rien n'a changé » (ADR-03), numérotation 01, 02… (SA-03).
+- [x] Nettoyage des séries obsolètes + option de conservation (SA-05, SA-06, RG-02).
+- [x] Restauration avec filet de sécurité (ADR-07).
+- [x] Isolation des erreurs : un projet en échec n'empêche pas les autres (ENF-09).
+- [x] Tests Pester (unitaires sur dépôts temporaires) + scénarios **R-01 à R-06, R-08** automatisés.
 
 **Porte** : Reality Checker sur la sortie des scénarios et un `git status` / `git diff --cached` identiques avant/après.
 
@@ -123,22 +136,22 @@ Exigences : SA-01 à SA-06, SA-08, RG-01 à RG-08, RG-11, ENF-01, ENF-03, ENF-09
 
 Exigences : SA-07, SA-09 à SA-12, TR-03, TR-04, RG-09, RG-10, ENF-02, ENF-08.
 
-- [ ] Commandes : `git autosave add | remove | list | run | restore | interval | keep | share | status | log | help` (noms à valider), appelables avec ou sans préfixe `git` (`git-autosave.cmd` sur le PATH utilisateur = sous-commande git).
-- [ ] Aide affichée sans argument ou sur commande inconnue, avec l'état courant (TR-04, R-16).
-- [ ] Recherche de la racine du projet depuis n'importe quel sous-dossier (SA-09).
-- [ ] Tâche planifiée + lanceur sans fenêtre (choix S1), intervalle 5–240 min (SA-11).
-- [ ] Hook `post-commit` (ADR-06) ; partage sur le distant `refs/autosave/*` et retrait au nettoyage (SA-07), sans jamais attendre une saisie d'identifiants (ENF-08).
-- [ ] Codes de sortie distincts, messages d'erreur qui donnent l'action à faire.
+- [x] Commandes : `git autosave add | remove | list | run | restore | interval | keep | share | status | log | help` (noms à valider), appelables avec ou sans préfixe `git` (`git-autosave.cmd` sur le PATH utilisateur = sous-commande git).
+- [x] Aide affichée sans argument ou sur commande inconnue, avec l'état courant (TR-04, R-16).
+- [x] Recherche de la racine du projet depuis n'importe quel sous-dossier (SA-09).
+- [x] Tâche planifiée + lanceur sans fenêtre (choix S1), intervalle 5–240 min (SA-11).
+- [x] Hook `post-commit` (ADR-06) ; partage sur le distant `refs/autosave/*` et retrait au nettoyage (SA-07), sans jamais attendre une saisie d'identifiants (ENF-08).
+- [x] Codes de sortie distincts, messages d'erreur qui donnent l'action à faire.
 
 ### L4 — Installation, réinstallation, désinstallation
 **Pilote** : Developer Tooling Engineer · **Relecteurs** : Code Reviewer, Reality Checker
 
 Exigences : TR-01, TR-02, TR-06, TR-07, TR-08, ENF-05, ENF-06, ENF-12, ENF-15.
 
-- [ ] `install.ps1` : les deux outils ou un seul (`-Only autosave|viewer`), < 2 min, idempotent (0 doublon PATH / tâche / hook).
-- [ ] `uninstall.ps1` par outil : retire PATH, tâche, hooks posés par le produit, arrête le visualiseur ; **conserve** `projects.json` et les refs `autosave` (TR-08).
-- [ ] Détection du blocage (fichier téléchargé, stratégie) → message + renvoi au guide (ENF-06).
-- [ ] Vérification Windows 10 21H2 / Windows 11 ; mode de repli documenté pour les versions plus anciennes (ENF-12).
+- [x] `install.ps1` : les deux outils ou un seul (`-Only autosave|viewer`), < 2 min, idempotent (0 doublon PATH / tâche / hook).
+- [x] `uninstall.ps1` par outil : retire PATH, tâche, hooks posés par le produit, arrête le visualiseur ; **conserve** `projects.json` et les refs `autosave` (TR-08).
+- [x] Détection du blocage (fichier téléchargé, stratégie) → message + renvoi au guide (ENF-06).
+- [x] Vérification Windows 10 21H2 / Windows 11 ; mode de repli documenté pour les versions plus anciennes (ENF-12).
 
 **Porte** : Reality Checker sur R-17 et R-19 joués sur un compte standard.
 
@@ -147,21 +160,21 @@ Exigences : TR-01, TR-02, TR-06, TR-07, TR-08, ENF-05, ENF-06, ENF-12, ENF-15.
 
 Exigences : VI-30, VI-31, VI-33, VI-34, VI-35, RG-26 à RG-29, ENF-04, ENF-07, ENF-09.
 
-- [ ] Contrat d'API JSON documenté (`docs/api.md`) : `state`, `graph`, `commit/:sha`, `diff`, `projects`, `open`, `actions/*`, `settings`, `shutdown`.
-- [ ] Sécurité ADR-08 ; validation des noms de branche (`git check-ref-format`) et des SHA avant toute commande (RG-29) ; arguments passés en liste, jamais concaténés en chaîne shell.
-- [ ] Instance unique et bascule de projet (ADR-09) ; reprise du dernier projet (VI-33) ; 15 récents + projets suivis (VI-32).
-- [ ] Inscription automatique à la sauvegarde à l'ouverture, désactivable (VI-34, RG-26) — **appel au module autosave, sans dépendance obligatoire** (TR-02 : le visualiseur fonctionne sans lui).
-- [ ] Relance propre après arrêt brutal : verrou périmé détecté via le PID (ENF-09).
+- [x] Contrat d'API JSON documenté (`docs/api.md`) : `state`, `graph`, `commit/:sha`, `diff`, `projects`, `open`, `actions/*`, `settings`, `shutdown`.
+- [x] Sécurité ADR-08 ; validation des noms de branche (`git check-ref-format`) et des SHA avant toute commande (RG-29) ; arguments passés en liste, jamais concaténés en chaîne shell.
+- [x] Instance unique et bascule de projet (ADR-09) ; reprise du dernier projet (VI-33) ; 15 récents + projets suivis (VI-32).
+- [x] Inscription automatique à la sauvegarde à l'ouverture, désactivable (VI-34, RG-26) — **appel au module autosave, sans dépendance obligatoire** (TR-02 : le visualiseur fonctionne sans lui).
+- [x] Relance propre après arrêt brutal : verrou périmé détecté via le PID (ENF-09).
 
 ### L6 — Interface : consultation
 **Pilote** : UX Architect (structure, CSS) → UI Designer (visuel) → Frontend Developer (code) · **Porte** : UI Finish-Gate Reviewer
 
 Exigences : VI-01 à VI-08, VI-32, ENF-11, ENF-13.
 
-- [ ] UX Architect : contrat de design (zones : en-tête d'état, graphe, panneau de détail, liste des fichiers / diff), variables CSS, thèmes clair/sombre, mise en page à 375 px.
-- [ ] UI Designer : codage visuel des points de reprise (forme ou trait distinct, pas seulement la couleur — VI-02), entrée « travail en cours » (VI-03), compte à rebours et états « non suivi » / « inactif » (VI-07).
-- [ ] Frontend Developer : rendu du graphe (SVG ou canvas) < 2 s pour 400 commits, détail de commit, diff, rafraîchissement ADR-10, interface 100 % en français.
-- [ ] Revue accessibilité (contrastes, clavier).
+- [x] UX Architect : contrat de design (zones : en-tête d'état, graphe, panneau de détail, liste des fichiers / diff), variables CSS, thèmes clair/sombre, mise en page à 375 px.
+- [x] UI Designer : codage visuel des points de reprise (forme ou trait distinct, pas seulement la couleur — VI-02), entrée « travail en cours » (VI-03), compte à rebours et états « non suivi » / « inactif » (VI-07).
+- [x] Frontend Developer : rendu du graphe (SVG ou canvas) < 2 s pour 400 commits, détail de commit, diff, rafraîchissement ADR-10, interface 100 % en français.
+- [x] Revue accessibilité (contrastes, clavier).
 
 ### L7 — Interface : actions sur le dépôt
 **Pilote** : Frontend Developer + Developer Tooling Engineer (côté serveur) · **Conseil** : Git Workflow Master (commande git exacte pour chaque action) · **Porte** : UI Finish-Gate Reviewer
@@ -180,25 +193,25 @@ Exigences : VI-10 à VI-17, VI-20 à VI-22, VI-35, RG-20 à RG-25.
 | Se placer sur un commit | `git switch --detach <sha>` |
 | Distant | `fetch`, `pull --ff-only` (RG-22), `push` avec cause d'échec affichée |
 
-- [ ] Boîte de confirmation unique réutilisée pour toutes les actions RG-20, double confirmation pour RG-21.
-- [ ] Réinitialisation complète à chaque changement de projet, tous onglets synchronisés (RG-25).
+- [x] Boîte de confirmation unique réutilisée pour toutes les actions RG-20, double confirmation pour RG-21.
+- [x] Réinitialisation complète à chaque changement de projet, tous onglets synchronisés (RG-25).
 
 ### L8 — Recette, durcissement
 **Pilote** : Test Automation Engineer · **Porte finale** : Reality Checker
 
-- [ ] Scénarios automatisés : R-01 à R-06, R-08, R-12, R-13, R-15, R-16, R-17 (PowerShell + Pester sur dépôts temporaires).
-- [ ] E2E Playwright du visualiseur (poste de dev) : R-09 à R-14, R-20 (V2), sélecteurs par rôle et libellé, aucune attente fixe, captures pour le Reality Checker.
+- [x] Scénarios automatisés : R-01 à R-06, R-08, R-12, R-13, R-15, R-16 (`tests/Run-Tests.ps1`, sans dépendance à Pester). R-17 reste manuel (touche l'installation réelle).
+- [x] E2E Playwright du visualiseur : `tests/e2e/` (18 tests, contrat d'API rejoué par `mock-server.js`) ; R-09/R-10 côté serveur réel dans `Run-Tests.ps1 -Integration`.
 - [ ] Recette manuelle sur poste Orano réel : R-07 (1 h, aucune fenêtre), R-18 (fichiers bloqués), R-19 (compte standard) et ENF-02 sur une journée de 8 h.
-- [ ] Écrire les scénarios manquants (point ouvert) : SA-07, SA-09, VI-20 à VI-22, ENF-07 (requête depuis une autre page web refusée), ENF-09 (projet en erreur, arrêt brutal), ENF-14 (chemins accentués).
-- [ ] Code Reviewer : revue globale finale.
+- [x] Écrire les scénarios manquants (point ouvert) : SA-07, SA-09, VI-20 à VI-22, ENF-07 (requête depuis une autre page web refusée), ENF-09 (projet en erreur, arrêt brutal), ENF-14 (chemins accentués).
+- [x] Code Reviewer : revue globale (6 🔴 + 11 🟡 corrigés, tests de non-régression ajoutés).
 
 **Porte V1** : Reality Checker — 100 % des R-xx V1 passés avec preuve, 0 🔴 ouvert.
 
 ### L9 — Documentation
 **Pilote** : Developer Tooling Engineer · **Relecteur** : Reality Checker (le guide suffit-il à un utilisateur seul ?)
 
-- [ ] `docs/GUIDE.md` : installation, usage, réglages, restauration, désinstallation, dépannage, blocage par les règles du poste (TR-09, R-18).
-- [ ] Note DSI : ce que fait le produit, où il écrit, ce qu'il ne fait pas (aucune élévation, aucun réseau sortant).
+- [x] `docs/GUIDE.md` : installation, usage, réglages, restauration, désinstallation, dépannage, blocage par les règles du poste (TR-09, R-18).
+- [x] Note DSI : ce que fait le produit, où il écrit, ce qu'il ne fait pas (aucune élévation, aucun réseau sortant).
 
 ### V2 (après la V1)
 TR-05, TR-10, TR-11 (paramétrage centralisé, réglages depuis le visualiseur, application à chaud, R-20) puis les évolutions §11 de l'AF : comparer deux points de reprise, restaurer un seul fichier, pause par projet, journal dans le visualiseur.
