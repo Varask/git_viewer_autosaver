@@ -8,7 +8,7 @@ Deux outils Windows pour les projets git, utilisables séparément :
 Windows 10 21H2+ / 11, Git for Windows, aucun droit administrateur, aucune connexion internet.
 
 ```powershell
-.\install.ps1          # puis, dans un nouveau terminal, dans un projet :
+.\install.cmd          # vérifie la stratégie d'exécution puis installe ; ensuite, dans un nouveau terminal :
 git autosave add
 git viewer
 ```

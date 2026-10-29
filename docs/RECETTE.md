@@ -19,7 +19,7 @@ Ces scénarios touchent l'installation réelle (PATH, tâche planifiée, alias) 
 | R-07 / ENF-02 | Installer, `git autosave add` dans un projet, `git autosave interval 5`, travailler 15 min en modifiant un fichier | 3 passages dans `git autosave log`, **aucune fenêtre** apparue, aucune perte de focus | ☐ |
 | R-14 / VI-07 / VI-34 | `git autosave remove` dans un projet, puis l'ouvrir via la liste ou le champ chemin du visualiseur | Projet suivi, compte à rebours affiché, écart < 5 s avec l'heure du passage dans le journal | ☐ |
 | R-17 / TR-07 / TR-08 | `uninstall.ps1` | `git autosave` et `git viewer` inconnus dans un nouveau terminal ; tâche absente ; visualiseur arrêté ; `%LOCALAPPDATA%\git-tools\projects.json` et `refs/autosave/*` intacts | ☐ |
-| R-18 / ENF-06 | Télécharger le zip (navigateur), extraire, `.\install.ps1` | Refus clair avec la commande `Unblock-File` ; après déblocage, installation réussie | ☐ |
+| R-18 / ENF-06 | Télécharger le zip (navigateur), extraire, `install.cmd` ; puis sur un compte en *Restricted* | Refus clair avec la commande `Unblock-File` (ou `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` en *Restricted*) ; ensuite installation réussie | ☐ |
 | R-19 / ENF-15 | Compte standard : installer, ajouter un projet, attendre un passage, ouvrir le visualiseur, désinstaller | Aucune demande d'élévation à aucune étape | ☐ |
 | TR-01 | Chronométrer `install.ps1` | < 2 min ; commandes reconnues dans un nouveau terminal | ☐ |
 | TR-06 | Relancer `install.ps1` deux fois | Une seule entrée PATH par outil (`$env:Path -split ';'`), une seule tâche, liste des projets identique | ☐ |

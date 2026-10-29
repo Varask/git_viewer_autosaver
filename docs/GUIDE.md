@@ -10,14 +10,18 @@ git-tools garde des **points de reprise** de votre travail en cours entre deux c
 ## 1. Installation
 
 1. Copiez le dossier `git-tools` où vous voulez (par exemple dans vos Documents).
-2. Ouvrez **Windows PowerShell** dans ce dossier (clic droit dans l'explorateur → *Ouvrir dans le terminal*).
-3. Lancez :
+2. Double-cliquez sur **`install.cmd`** (ou lancez `.\install.cmd` dans un terminal ouvert dans ce dossier).
+
+   Pour un seul outil : `.\install.cmd -Only autosave` ou `.\install.cmd -Only viewer`.
+
+   `install.cmd` vérifie d'abord que PowerShell accepte les scripts. Sur un PC personnel, Windows les refuse par défaut (stratégie *Restricted*, message « running scripts is disabled on this system ») : `install.cmd` affiche alors la commande à lancer une fois, **pour votre compte seulement, sans droits administrateur** :
 
    ```powershell
-   .\install.ps1
+   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
    ```
 
-   Pour un seul outil : `.\install.ps1 -Only autosave` ou `.\install.ps1 -Only viewer`.
+   *RemoteSigned* autorise les scripts présents sur le disque et refuse ceux téléchargés d'internet non débloqués. C'est la stratégie qu'imposent la plupart des postes d'entreprise. git-tools ne la contourne jamais lui-même. Si la commande est refusée, votre poste est géré par une DSI : voir [§ 7](#7-poste-verrouillé-par-la-dsi).
+3. Si vous préférez PowerShell directement : `.\install.ps1` (mêmes options).
 
 4. **Ouvrez un nouveau terminal** : les commandes `git autosave` et `git viewer` y sont reconnues, depuis n'importe quel dossier.
 
@@ -130,6 +134,7 @@ git for-each-ref --format="delete %(refname)" refs/autosave/ | git update-ref --
 
 | Symptôme | Cause probable | Solution |
 | --- | --- | --- |
+| « running scripts is disabled on this system » | Stratégie *Restricted* (défaut Windows) | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, voir § 1 |
 | `git autosave` inconnu | Terminal ouvert avant l'installation | Ouvrir un nouveau terminal |
 | « Sauvegarde : inactive » dans le visualiseur | Tâche planifiée absente ou désactivée | Relancer `install.ps1` ; vérifier `git-tools-autosave` dans le Planificateur de tâches |
 | Une fenêtre noire apparaît à chaque passage | `conhost --headless` non supporté par ce Windows | `git autosave launcher wscript` |
