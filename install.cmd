@@ -28,5 +28,7 @@ echo  Ce poste n accepte que des scripts signes (strategie "AllSigned").
 echo  Transmettez docs\NOTE-DSI.md a votre service informatique (section AllSigned).
 set "RC=1"
 :end
-if /i "%~1"=="" if "%CMDCMDLINE:"=%" neq "%CMDCMDLINE%" pause
+rem Garder la fenetre ouverte (double-clic) pour lire le resultat.
+echo.
+pause
 exit /b %RC%
