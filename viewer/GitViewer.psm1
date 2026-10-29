@@ -1,4 +1,4 @@
-# git-tools — logique du visualiseur (lots L5 et L7)
+﻿# git-tools — logique du visualiseur (lots L5 et L7)
 # Lecture de l'état (VI-01 à VI-08), actions (VI-10 à VI-22), routage HTTP et sécurité (ADR-08).
 # Aucune dépendance réseau : Invoke-ViewerRequest est testable sans serveur.
 # Ce fichier doit rester en UTF-8 avec BOM.

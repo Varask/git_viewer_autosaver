@@ -1,4 +1,4 @@
-<#
+﻿<#
   git-tools — installation (lot L4). TR-01, TR-02, TR-06, ENF-05, ENF-06, ENF-12, ENF-15.
   Sans droits administrateur. Réinstallable sans doublon.
 

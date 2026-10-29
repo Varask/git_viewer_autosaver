@@ -1,4 +1,4 @@
-<#
+﻿<#
   git autosave — points de reprise automatiques du travail en cours.
   Lot L3 : SA-07, SA-09 à SA-12, TR-03, TR-04. Ce fichier doit rester en UTF-8 avec BOM.
   Codes de sortie : 0 succès, 1 commande ou valeur invalide, 2 hors projet git, 3 échec.

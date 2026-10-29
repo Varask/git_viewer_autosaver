@@ -1,4 +1,4 @@
-# git-tools — module commun
+﻿# git-tools — module commun
 # Appel de git (ADR-04), configuration, listes de projets, journal (ENF-10).
 # Compatible Windows PowerShell 5.1 et PowerShell 7. Ce fichier doit rester en UTF-8 avec BOM.
 

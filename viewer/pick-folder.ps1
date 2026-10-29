@@ -1,4 +1,4 @@
-# git-tools — sélecteur de dossier (VI-32). Lancé en STA par le serveur ; écrit le chemin choisi sur la sortie.
+﻿# git-tools — sélecteur de dossier (VI-32). Lancé en STA par le serveur ; écrit le chemin choisi sur la sortie.
 # Ce fichier doit rester en UTF-8 avec BOM.
 Add-Type -AssemblyName System.Windows.Forms
 $owner = New-Object System.Windows.Forms.Form

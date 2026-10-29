@@ -1,4 +1,4 @@
-# git-tools — moteur de sauvegarde automatique (lot L2)
+﻿# git-tools — moteur de sauvegarde automatique (lot L2)
 # SA-01 à SA-08, SA-10, SA-12, RG-01 à RG-11. Décisions : docs/adr.md (ADR-01 à ADR-07).
 # Ce fichier doit rester en UTF-8 avec BOM.
 

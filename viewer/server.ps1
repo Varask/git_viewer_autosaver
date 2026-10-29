@@ -1,4 +1,4 @@
-<#
+﻿<#
   git-tools — serveur du visualiseur (lot L5). Lancé caché par git-viewer.ps1, jamais directement.
   Écoute 127.0.0.1 uniquement (ADR-08), instance unique (ADR-09), requêtes en parallèle (pool de runspaces).
   Ce fichier doit rester en UTF-8 avec BOM.
@@ -41,7 +41,7 @@ try {
         lastTabOpen = [datetime]::MinValue
         presence    = 0
         stop        = $false
-        noBrowser   = [bool]$NoBrowser
+        noBrowser   = ([bool]$NoBrowser -or $env:GITTOOLS_NOBROWSER -eq '1')   # tests automatisés
     })
 
     # Projet initial : celui demandé, sinon le dernier consulté (VI-33).

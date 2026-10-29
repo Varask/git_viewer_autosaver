@@ -1,4 +1,4 @@
-<#
+﻿<#
   git-tools — désinstallation (lot L4). TR-07, TR-08, R-17.
   Retire tout ce que l'installation a ajouté. CONSERVE la liste des projets et les points de reprise.
 

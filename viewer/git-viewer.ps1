@@ -1,4 +1,4 @@
-<#
+﻿<#
   git viewer — ouvre le visualiseur sur le projet courant (lot L5).
   VI-30 (rend la main), VI-31 (instance unique), VI-33 (dernier projet), VI-35 (arrêt), TR-04 (aide).
   Codes de sortie : 0 succès, 1 commande invalide, 2 hors projet git, 3 échec.
