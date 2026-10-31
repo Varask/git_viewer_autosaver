@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="fr" data-theme="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>git viewer</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="bar" id="bar">
+  <button class="project" id="btn-project" type="button" aria-haspopup="dialog" title="Changer de projet">
+    <span class="project-name" id="project-name">—</span>
+    <span class="project-path" id="project-path"></span>
+  </button>
+
+  <div class="status" id="status" aria-live="polite">
+    <button class="pill branch" id="btn-branch" type="button" aria-haspopup="dialog" title="Branches">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10M11 3v3a3 3 0 0 1-3 3H5"/><circle cx="5" cy="3" r="1.6"/><circle cx="11" cy="3" r="1.6"/><circle cx="5" cy="13" r="1.6"/></svg>
+      <span id="branch-name">—</span>
+    </button>
+    <span class="pill sync" id="sync" title="Avance / retard sur le distant"></span>
+    <span class="pill" id="changes-count" title="Modifications en cours"></span>
+    <span class="pill" id="stash-count" title="Modifications mises de côté"></span>
+  </div>
+
+  <div class="autosave" id="autosave" title="Sauvegarde automatique">
+    <svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-bg" cx="18" cy="18" r="15"/><circle class="ring-fg" id="ring-fg" cx="18" cy="18" r="15"/></svg>
+    <span class="autosave-text"><span class="label">Prochaine sauvegarde</span><strong id="countdown">—</strong></span>
+  </div>
+
+  <div class="remote" role="group" aria-label="Dépôt distant">
+    <button type="button" class="btn ghost" id="btn-fetch" title="Récupérer l'état du distant sans rien modifier">Récupérer</button>
+    <button type="button" class="btn ghost" id="btn-pull" title="Tirer les commits distants (sans fusion)">Tirer</button>
+    <button type="button" class="btn ghost" id="btn-push" title="Pousser les commits locaux">Pousser</button>
+  </div>
+
+  <div class="tools">
+    <label class="switch" title="Afficher les points de reprise dans le graphe">
+      <input type="checkbox" id="toggle-autosave" checked aria-label="Afficher les points de reprise">
+      <span>Points de reprise</span>
+    </label>
+    <button type="button" class="icon" id="btn-theme" title="Thème : système" aria-label="Changer de thème">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" class="fill"/></svg>
+    </button>
+    <button type="button" class="icon" id="btn-menu" title="Plus d'actions" aria-haspopup="menu" aria-label="Plus d'actions">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.3" class="fill"/><circle cx="8" cy="8" r="1.3" class="fill"/><circle cx="13" cy="8" r="1.3" class="fill"/></svg>
+    </button>
+    <div class="menu" id="menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-act="autosaveNow">Sauvegarder maintenant</button>
+      <button type="button" role="menuitem" data-act="track" id="menu-track">Suivre ce projet</button>
+      <button type="button" role="menuitem" data-act="stash">Mettre de côté</button>
+      <button type="button" role="menuitem" data-act="stashPop" id="menu-stashpop">Réappliquer le dernier mis de côté</button>
+      <hr>
+      <button type="button" role="menuitem" data-act="shutdown" class="danger">Arrêter le visualiseur</button>
+    </div>
+  </div>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<main class="layout">
+  <section class="history" aria-label="Historique">
+    <div class="history-head">
+      <h2>Historique</h2>
+      <span class="muted" id="graph-info"></span>
+      <label class="limit">Afficher
+        <select id="graph-limit">
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="400" selected>400</option>
+          <option value="1000">1000</option>
+          <option value="3000">3000</option>
+        </select> commits
+      </label>
+    </div>
+    <div class="graph-scroll" id="graph-scroll">
+      <button type="button" class="row wip" id="wip-row" hidden>
+        <span class="g"><span class="wip-dot"></span></span>
+        <span class="subject"><strong>Travail en cours</strong> <span class="muted" id="wip-count"></span></span>
+      </button>
+      <div class="graph" id="graph" role="listbox" aria-label="Commits" tabindex="0"></div>
+      <p class="empty" id="graph-empty" hidden>Aucun commit pour l'instant.</p>
+    </div>
+  </section>
+
+  <aside class="panel" id="panel" aria-live="polite">
+    <div class="panel-empty" id="panel-empty">
+      <p>Choisissez <strong>Travail en cours</strong> ou un commit dans l'historique.</p>
+    </div>
+    <div id="panel-body" hidden></div>
+  </aside>
+</main>
+
+<div class="toast-zone" id="toasts" aria-live="assertive"></div>
+
+<dialog id="dlg-confirm">
+  <form method="dialog">
+    <h3 id="confirm-title">Confirmer</h3>
+    <p id="confirm-text"></p>
+    <div class="dlg-actions">
+      <button type="submit" value="cancel" class="btn ghost" id="confirm-cancel">Retour</button>
+      <button type="submit" value="ok" class="btn primary" id="confirm-ok">Confirmer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-project">
+  <div class="dlg-head">
+    <h3>Ouvrir un projet</h3>
+    <button type="button" class="icon" data-close aria-label="Fermer">✕</button>
+  </div>
+  <ul class="list" id="project-list"></ul>
+  <form class="inline" id="form-path">
+    <label for="input-path" class="sr">Chemin d'un projet</label>
+    <input id="input-path" type="text" placeholder="C:\chemin\vers\le\projet" autocomplete="off" spellcheck="false">
+    <button type="submit" class="btn">Ouvrir</button>
+    <button type="button" class="btn ghost" id="btn-browse">Parcourir…</button>
+  </form>
+</dialog>
+
+<dialog id="dlg-branches">
+  <div class="dlg-head">
+    <h3>Branches</h3>
+    <button type="button" class="icon" data-close aria-label="Fermer">✕</button>
+  </div>
+  <form class="inline" id="form-branch">
+    <label for="input-branch" class="sr">Nom de la nouvelle branche</label>
+    <input id="input-branch" type="text" placeholder="nouvelle-branche" autocomplete="off" spellcheck="false">
+    <button type="submit" class="btn">Créer et basculer</button>
+  </form>
+  <h4>Locales</h4>
+  <ul class="list" id="branch-local"></ul>
+  <h4>Distantes</h4>
+  <ul class="list" id="branch-remote"></ul>
+</dialog>
+
+<script src="/graph.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
