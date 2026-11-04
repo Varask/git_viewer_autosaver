@@ -198,7 +198,7 @@ Test-Case 'RG-05 / RG-06 : hors branche et projet vide → aucun point' {
     Assert-Equal (Invoke-AutosaveProject -Repo $e -Config $cfg).Result 'Skipped' 'projet sans commit'
 }
 
-Test-Case 'RG-08 / ENF-09 / SA-10 : un projet introuvable n’empêche pas les autres' {
+Test-Case 'RG-08 / ENF-09 / SA-10 : un projet introuvable n''empêche pas les autres' {
     $a = New-TestRepo; $b = New-TestRepo
     Write-File $a 'a.txt' "A`n"; Write-File $b 'a.txt' "B`n"
     Set-Projects @($a, (Join-Path $TmpBase 'disparu'), $b)
@@ -292,7 +292,7 @@ Test-Case 'Revue 🟡2 : core.hooksPath → aucun hook écrit' {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $r '.githooks'))) 'hook écrit dans les fichiers du projet'
 }
 
-Test-Case 'Revue 🔴3 : le hook n’utilise pas -WindowStyle et lance tout par chemin complet' {
+Test-Case 'Revue 🔴3 : le hook n''utilise pas -WindowStyle et lance tout par chemin complet' {
     $r = New-TestRepo
     [void](Install-AutosaveHook $r)
     $h = [System.IO.File]::ReadAllText((Get-AutosaveHookPath $r))
@@ -307,7 +307,7 @@ Test-Case 'ENF-10 : journal limité à 1 Mo' {
     Assert-True ($size -le 1MB) "journal de $size octets"
 }
 
-Test-Case 'R-16 / TR-04 : aide avec l’état, sans commande ou commande inconnue' {
+Test-Case 'R-16 / TR-04 : aide avec l''état, sans commande ou commande inconnue' {
     $ps1 = Join-Path $Root 'autosave\git-autosave.ps1'
     $out = & powershell.exe -NoProfile -File $ps1 2>&1 | Out-String
     Assert-Equal $LASTEXITCODE 0 'code de sortie sans commande'
@@ -427,10 +427,10 @@ Test-Case 'VI-03 / VI-04 : état conforme au projet' {
     Assert-Equal $s.branch 'main' 'branche'
     Assert-Equal @($s.changes).Count 2 'nombre de modifications'
     Assert-True (@($s.changes | Where-Object { $_.path -eq 'nouveau é.txt' -and $_.untracked }).Count -eq 1) 'nouveau fichier accentué'
-    Assert-Equal $s.autosave.tracked $true 'VI-34 : inscrit à la sauvegarde à l’ouverture'
+    Assert-Equal $s.autosave.tracked $true 'VI-34 : inscrit à la sauvegarde à l''ouverture'
 }
 
-Test-Case 'VI-06 : l’empreinte change quand un fichier déjà modifié change encore' {
+Test-Case 'VI-06 : l''empreinte change quand un fichier déjà modifié change encore' {
     $f1 = (Req 'GET' '/api/state').Body.fingerprint
     Start-Sleep -Milliseconds 50
     Write-File $V 'a.txt' "modifié encore`n"
@@ -447,7 +447,7 @@ Test-Case 'VI-01 / VI-02 : graphe avec points de reprise distincts et masquables
     Assert-Equal @($g2.commits | Where-Object { $_.auto }).Count 0 'points de reprise masqués'
 }
 
-Test-Case 'R-12 / VI-10 / VI-12 : indexer un fichier, committer l’index' {
+Test-Case 'R-12 / VI-10 / VI-12 : indexer un fichier, committer l''index' {
     $r = Act 'stage' @{ paths = @('a.txt') }
     Assert-True $r.Body.ok $r.Body.message
     $c = Act 'commit' @{ message = 'Seulement a.txt'; all = $false; amend = $false }
@@ -495,7 +495,7 @@ Test-Case 'R-15 / RG-21 / VI-15 : branches ; suppression non fusionnée en deux 
     Assert-Equal (G $V @('branch', '--list', 'essai')) '' 'branche encore là'
 }
 
-Test-Case 'Revue 🟡4 : indexer « [ab].txt » n’indexe que lui' {
+Test-Case 'Revue 🟡4 : indexer « [ab].txt » n''indexe que lui' {
     Write-File $V '[ab].txt' "x`n"; Write-File $V 'b.txt' "y`n"
     Assert-True (Act 'stage' @{ paths = @('[ab].txt') }).Body.ok 'indexation'
     Assert-Equal (G $V @('diff', '--cached', '--name-only')) '[ab].txt' 'fichiers indexés'
@@ -545,7 +545,7 @@ Test-Case 'RG-22 / VI-20 / VI-21 / VI-22 : distant — récupérer, tirage sans 
     Assert-True ($pull.Body.message -match 'divergé') $pull.Body.message
     Assert-Equal (G $V @('rev-parse', 'HEAD')) $headLocal 'RG-22 : une fusion a été créée'
     $push = Act 'push'
-    Assert-True ((-not $push.Body.ok) -and $push.Body.message) 'cause de l’échec de l’envoi'
+    Assert-True ((-not $push.Body.ok) -and $push.Body.message) 'cause de l''échec de l''envoi'
 }
 
 Test-Case 'RG-28 : dossier non git refusé, projet courant conservé' {
