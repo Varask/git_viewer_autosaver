@@ -6,17 +6,23 @@
     .\install.ps1                  les deux outils
     .\install.ps1 -Only autosave   la sauvegarde seule
     .\install.ps1 -Only viewer     le visualiseur seul
+    .\install.ps1 -NoShellMenu     sans clic droit « Ouvrir dans git viewer » ni raccourci du menu Démarrer
 
   Ce fichier doit rester en UTF-8 avec BOM.
 #>
 param(
     [ValidateSet('all', 'autosave', 'viewer')] [string] $Only = 'all',
-    [string] $Destination = (Join-Path $env:LOCALAPPDATA 'Programs\git-tools')
+    [string] $Destination = (Join-Path $env:LOCALAPPDATA 'Programs\git-tools'),
+    [switch] $NoShellMenu   # ne pas ajouter le clic droit ni le raccourci du menu Démarrer (L10)
 )
 
 $ErrorActionPreference = 'Stop'
 $src = $PSScriptRoot
 $started = Get-Date
+# Version : fichier VERSION écrit par tools\build-package.ps1 (absent dans le dépôt de développement).
+$version = 'dev'
+$vf = Join-Path $src 'VERSION'
+if (Test-Path -LiteralPath $vf) { $version = ([IO.File]::ReadAllText($vf)).Trim() }
 
 function Step([string] $t) { Write-Host "  • $t" }
 function Stop-Install([string] $t) {
@@ -26,7 +32,7 @@ function Stop-Install([string] $t) {
     exit 1
 }
 
-Write-Host 'Installation de git-tools'
+Write-Host "Installation de git-tools $version"
 
 # ---------------------------------------------------------------- vérifications (FC7, ENF-05, ENF-12)
 if ($PSVersionTable.PSVersion.Major -lt 5 -or ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -lt 1)) {
@@ -91,7 +97,9 @@ if (-not $sameDir) {
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
         Copy-Item -LiteralPath (Join-Path $src $p) -Destination $target -Recurse -Force
     }
-    foreach ($f in @('uninstall.ps1', 'install.ps1')) { Copy-Item -LiteralPath (Join-Path $src $f) -Destination $Destination -Force }
+    foreach ($f in @('uninstall.ps1', 'install.ps1', 'VERSION')) {
+        if (Test-Path -LiteralPath (Join-Path $src $f)) { Copy-Item -LiteralPath (Join-Path $src $f) -Destination $Destination -Force }
+    }
     if (Test-Path -LiteralPath (Join-Path $src 'docs')) {
         Copy-Item -LiteralPath (Join-Path $src 'docs') -Destination $Destination -Recurse -Force
     }
@@ -144,6 +152,20 @@ if ($parts -contains 'viewer') {
     [void](Add-GTUserPath $dir)
     Set-GitAlias 'viewer' (Join-Path $dir 'git-viewer.ps1')
     Step 'Commande « git viewer » prête.'
+    if (-not $NoShellMenu) {
+        $vps1 = Join-Path $dir 'git-viewer.ps1'
+        $ico = Join-Path $dir 'git-tools.ico'
+        try {
+            Install-GTShellMenu $vps1 $ico
+            Install-GTStartMenu $vps1 $ico
+            Step 'Clic droit sur un dossier → « Ouvrir dans git viewer » (Windows 11 : « Afficher plus d''options ») ; raccourci « git viewer » dans le menu Démarrer.'
+        } catch {
+            Write-Host "  ! Clic droit / menu Démarrer non ajoutés : $($_.Exception.Message). La commande « git viewer » reste utilisable." -ForegroundColor Yellow
+        }
+    } else {
+        # Réinstallation avec -NoShellMenu : retirer une intégration posée auparavant (TR-06).
+        [void](Uninstall-GTShellMenu); [void](Uninstall-GTStartMenu)
+    }
     $installed += 'viewer'
 }
 
@@ -156,12 +178,15 @@ Write-GTJson $manifestFile ([ordered]@{
     destination = $Destination
     components  = $components
     date        = (Get-Date).ToString('o')
-    version     = '1.0.0'
+    version     = $version
 })
 
 $secs = [int]((Get-Date) - $started).TotalSeconds
 Write-Host ''
-Write-Host "git-tools est installé ($secs s)." -ForegroundColor Green
+Write-Host "git-tools $version est installé ($secs s)." -ForegroundColor Green
 Write-Host 'Ouvrez un NOUVEAU terminal, puis dans un projet :'
 if ($installed -contains 'autosave') { Write-Host '    git autosave add      suivre ce projet' }
-if ($installed -contains 'viewer') { Write-Host '    git viewer            ouvrir le visualiseur' }
+if ($installed -contains 'viewer') {
+    Write-Host '    git viewer            ouvrir le visualiseur'
+    if (-not $NoShellMenu) { Write-Host 'Ou, sans terminal : clic droit sur le dossier du projet → « Ouvrir dans git viewer ».' }
+}

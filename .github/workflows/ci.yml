@@ -1,0 +1,154 @@
+# git-tools — intégration continue et publication (lot L10).
+#  - à chaque push / pull request : contrôle d'encodage, recette Windows PowerShell 5.1, tests de
+#    l'interface, puis construction du zip (téléchargeable dans l'onglet Actions, 30 jours) ;
+#  - sur une étiquette vX.Y.Z : mêmes portes, puis publication du zip et de son empreinte SHA-256
+#    dans une Release GitHub. Aucune publication si un test échoue.
+#
+# Publier une version :   git tag v1.1.0   puis   git push origin v1.1.0
+name: CI et publication
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  windows:
+    name: Recette Windows (PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Encodage (BOM UTF-8, ASCII, UTF-8 valide)
+        run: node tests/check-encoding.js
+
+      - name: Recette automatisée (moteur, visualiseur, réglages, clic droit)
+        shell: powershell
+        run: |
+          git config --global user.name "CI git-tools"
+          git config --global user.email "ci@git-tools.invalid"
+          & .\tests\Run-Tests.ps1
+          exit $LASTEXITCODE
+
+      - name: Recette d'intégration (serveur réel, instance unique, hook)
+        # Informatif pour l'instant : dépend du minutage du runner. La porte reste la recette ci-dessus.
+        continue-on-error: true
+        shell: powershell
+        run: |
+          & .\tests\Run-Tests.ps1 -Integration
+          exit $LASTEXITCODE
+
+      - name: Rapport de recette
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-recette-windows
+          path: tests/derniere-recette.txt
+          if-no-files-found: ignore
+
+  interface:
+    name: Tests de l'interface (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Playwright
+        run: |
+          npm install --no-save --no-package-lock playwright@1.47.2
+          npx playwright install --with-deps chromium
+      - name: Tests E2E
+        run: node --test tests/e2e/viewer.e2e.test.js
+      - name: Captures d'écran
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-interface
+          path: tests/e2e/test-results/
+          if-no-files-found: ignore
+
+  paquet:
+    name: Paquet zip
+    needs: [windows, interface]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: powershell
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $v = $env:GITHUB_REF_NAME -replace '^v', ''
+          } else {
+            $v = "0.0.0-dev.$($env:GITHUB_RUN_NUMBER).$($env:GITHUB_SHA.Substring(0, 7))"
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Étiquette invalide : $env:GITHUB_REF_NAME (attendu vX.Y.Z)" }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$v" -Encoding ascii
+          Write-Host "Version : $v"
+
+      - name: Construire le zip
+        shell: powershell
+        run: .\tools\build-package.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: git-tools-${{ steps.version.outputs.version }}
+          path: dist/
+          retention-days: 30
+
+  publication:
+    name: Release GitHub
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: paquet
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: git-tools-${{ needs.paquet.outputs.version }}
+          path: dist
+
+      - name: Publier
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.paquet.outputs.version }}
+        run: |
+          sha=$(cut -d' ' -f1 "dist/git-tools-$VERSION.zip.sha256")
+          cat > notes.md <<NOTES
+          ## Installation
+
+          1. Téléchargez **git-tools-$VERSION.zip** ci-dessous.
+          2. Clic droit sur le zip → **Extraire tout…**
+          3. Dans le dossier extrait, double-cliquez sur **install.cmd** et répondez **O** si Windows signale des fichiers téléchargés.
+
+          Prérequis : Windows 10 21H2+ ou 11, Git for Windows. Aucun droit administrateur.
+          Mise à jour : même procédure, la liste des projets et les réglages sont conservés.
+
+          Empreinte SHA-256 du zip : \`$sha\`
+          (vérification : \`Get-FileHash .\\git-tools-$VERSION.zip\`)
+
+          NOTES
+          pre=""
+          case "$VERSION" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag $pre \
+            --title "git-tools $VERSION" \
+            --notes-file notes.md --generate-notes

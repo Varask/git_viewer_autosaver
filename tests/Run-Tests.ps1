@@ -18,6 +18,7 @@ $TmpBase = Join-Path ([System.IO.Path]::GetTempPath()) ("git-tools tests é " + 
 New-Item -ItemType Directory -Path $TmpBase -Force | Out-Null
 $env:GITTOOLS_DATA = Join-Path $TmpBase 'données'
 $env:GITTOOLS_NOBROWSER = '1'
+$env:GITTOOLS_NOTASK = '1'      # un réglage modifié par les tests ne réenregistre jamais la vraie tâche planifiée
 
 Import-Module (Join-Path $Root 'viewer\GitViewer.psm1') -DisableNameChecking -Force
 Initialize-GTConsole
@@ -318,6 +319,40 @@ Test-Case 'R-16 / TR-04 : aide avec l’état, sans commande ou commande inconnu
     Assert-Equal $LASTEXITCODE 1 'SA-11 : intervalle hors bornes accepté'
 }
 
+Test-Case 'L10 / ENF-15 / TR-06 / TR-07 : clic droit et menu Démarrer posés, idempotents, retirés sans toucher au reste' {
+    # Clés sous une racine de test jetable : le vrai HKCU\Software\Classes n'est jamais touché.
+    $testRoot = 'Software\git-tools-tests-' + [guid]::NewGuid().ToString('N').Substring(0, 6)
+    $classes = "$testRoot\Classes"
+    $dir = Join-Path $TmpBase 'Menu Démarrer'
+    $ps1 = Join-Path $TmpBase 'dossier à espaces\viewer\git-viewer.ps1'
+    $hk = [Microsoft.Win32.Registry]::CurrentUser
+    $hk.CreateSubKey("$classes\Directory\shell\autre-outil").Close()
+    try {
+        Install-GTShellMenu $ps1 'x.ico' -ClassesKey $classes
+        Install-GTShellMenu $ps1 'x.ico' -ClassesKey $classes
+        foreach ($parent in @('Directory\shell', 'Directory\Background\shell')) {
+            $verbs = @($hk.OpenSubKey("$classes\$parent").GetSubKeyNames() | Where-Object { $_ -eq 'git-tools.viewer' })
+            Assert-Equal $verbs.Count 1 "entrée unique sous $parent"
+            $k = $hk.OpenSubKey("$classes\$parent\git-tools.viewer\command")
+            Assert-True ($k) "commande absente sous $parent"
+            $v = [string]$k.GetValue(''); $k.Close()
+            Assert-True ($v -like '*\conhost.exe" --headless "*powershell.exe" -NoProfile -NonInteractive -File *') "lancement sans fenêtre attendu : $v"
+            Assert-True ($v.EndsWith('"' + $ps1 + '" --explorer "%V"')) "commande inattendue : $v"
+        }
+        Install-GTStartMenu $ps1 'x.ico' -Dir $dir
+        Install-GTStartMenu $ps1 'x.ico' -Dir $dir
+        Assert-Equal @(Get-ChildItem -LiteralPath $dir).Count 1 'un seul raccourci'
+        Assert-True (Uninstall-GTShellMenu -ClassesKey $classes) 'retrait non signalé'
+        Assert-True (-not (Uninstall-GTShellMenu -ClassesKey $classes)) 'second retrait : rien ne devait rester'
+        Assert-True (-not ($hk.OpenSubKey("$classes\Directory\shell").GetSubKeyNames() -contains 'git-tools.viewer')) 'clé git-tools restante'
+        Assert-True ($hk.OpenSubKey("$classes\Directory\shell").GetSubKeyNames() -contains 'autre-outil') 'entrée d''un autre logiciel supprimée'
+        Assert-True (Uninstall-GTStartMenu -Dir $dir) 'raccourci non retiré'
+        Assert-True (-not (Test-Path -LiteralPath $dir)) 'dossier du menu Démarrer vide laissé en place'
+    } finally {
+        $hk.DeleteSubKeyTree($testRoot, $false)
+    }
+}
+
 Write-Host ''
 Write-Host 'Visualiseur (logique et sécurité, sans réseau)' -ForegroundColor Cyan
 
@@ -350,6 +385,40 @@ Test-Case 'ENF-07 / FC5 : hôte, jeton et origine contrôlés' {
     $page = Req 'GET' '/'
     Assert-Equal $page.Status 200 'page'
     Assert-True ($page.Text -notmatch 'jeton-test') 'le jeton ne doit jamais être écrit dans la page servie'
+}
+
+Test-Case 'R-20 / TR-05 / TR-10 / TR-11 : réglages listés, modifiés, refusés avec les bornes, rétablis' {
+    $g = Req 'GET' '/api/settings'
+    Assert-Equal $g.Status 200 'lecture des réglages'
+    $keys = @($g.Body.items | ForEach-Object { $_.key }) -join ','
+    Assert-Equal $keys 'intervalMin,keepSeries,shareRemote,autoTrack,autoTrackExclude,launcher,graphLimit' 'TR-05 : tous les réglages, dans l''ordre'
+    foreach ($i in $g.Body.items) { Assert-True ($i.label -and $i.help) "explication manquante : $($i.key)" }
+    Assert-Equal (@($g.Body.items | Where-Object key -eq 'intervalMin'))[0].default 30 'défaut de l''intervalle'
+
+    $r = Req 'POST' '/api/settings' @{ key = 'intervalMin'; value = 15 }
+    Assert-Equal $r.Status 200 'intervalle 15 accepté'
+    Assert-Equal ([int](Get-GTConfig).intervalMin) 15 'intervalle enregistré'
+    Assert-Equal ([int](Get-ViewerState $V).autosave.intervalMin) 15 'R-20 : le compte à rebours reflète 15 min'
+    foreach ($bad in @(3, 241, '15 min', 12.5, $true)) {
+        $x = Req 'POST' '/api/settings' @{ key = 'intervalMin'; value = $bad }
+        Assert-Equal $x.Status 400 "valeur « $bad » acceptée"
+        Assert-True ($x.Body.message -match 'de 5 à 240') "message sans les valeurs acceptées : $($x.Body.message)"
+    }
+    Assert-Equal ([int](Get-GTConfig).intervalMin) 15 'une valeur refusée ne change rien'
+    Assert-Equal (Req 'POST' '/api/settings' @{ key = 'launcher'; value = 'cmd' }).Status 400 'lanceur inconnu accepté'
+    Assert-Equal (Req 'POST' '/api/settings' @{ key = 'keepSeries'; value = 'oui' }).Status 400 'booléen texte accepté'
+    Assert-Equal (Req 'POST' '/api/settings' @{ key = 'scheduleStart'; value = 'x' }).Status 400 'réglage interne modifiable'
+    Assert-Equal (Req 'POST' '/api/settings' @{ key = 'keepSeries'; value = $true }).Status 200 'booléen'
+    [void](Set-GTConfigValue 'autoTrackExclude' @('C:\a', 'D:\projet été'))
+    Assert-Equal (Req 'POST' '/api/settings' @{ key = 'autoTrackExclude'; value = @('D:\projet été') }).Status 200 'retrait d''une exclusion'
+    Assert-Equal (@((Get-GTConfig).autoTrackExclude) -join '|') 'D:\projet été' 'liste d''exclusion'
+    Assert-Equal (Req 'POST' '/api/settings' @{ key = 'autoTrackExclude'; value = @() }).Status 200 'liste vidée'
+    Assert-Equal @((Get-GTConfig).autoTrackExclude).Count 0 'liste vide'
+
+    $z = Req 'POST' '/api/settings' @{ reset = $true }
+    Assert-Equal $z.Status 200 'rétablir'
+    $c = Get-GTConfig
+    Assert-True ([int]$c.intervalMin -eq 30 -and -not $c.keepSeries) 'TR-10 : valeurs par défaut en 1 action'
 }
 
 Test-Case 'VI-03 / VI-04 : état conforme au projet' {

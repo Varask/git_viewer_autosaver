@@ -13,7 +13,39 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'common\GitTools.Common.psm1') -DisableNameChecking
 Initialize-GTConsole
 
-function Fail([string] $Text, [int] $Code = 3) { [Console]::Error.WriteLine("Erreur : $Text"); exit $Code }
+# Lancement depuis le clic droit de l'Explorateur ou le menu Démarrer (L10) : aucune console n'est
+# visible, les erreurs sont donc montrées dans une boîte de dialogue. Le chemin reçu n'est jamais
+# interprété comme une sous-commande (un dossier nommé « stop » ouvre ce dossier).
+$script:FromExplorer = $false
+if ($Command -eq '--explorer') {
+    $script:FromExplorer = $true
+    # « C:\ » arrive sous la forme « C:" » (règle de citation de Windows) : on la rétablit.
+    $Command = if ($Rest.Count) { ([string]$Rest[0]).Trim().TrimEnd('"') } else { '' }
+    if ($Command -match '^[A-Za-z]:$') { $Command += '\' }
+    $Rest = @()
+}
+
+function Show-GTMessage([string] $Text) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $owner = New-Object System.Windows.Forms.Form
+        $owner.TopMost = $true
+        $owner.ShowInTaskbar = $false
+        $owner.StartPosition = 'CenterScreen'
+        $owner.Size = New-Object System.Drawing.Size(1, 1)
+        $owner.Opacity = 0
+        $owner.Show()
+        $owner.Activate()
+        [void][System.Windows.Forms.MessageBox]::Show($owner, $Text, 'git viewer',
+            [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        $owner.Close()
+    } catch { }
+}
+
+function Fail([string] $Text, [int] $Code = 3) {
+    if ($script:FromExplorer) { Show-GTMessage $Text } else { [Console]::Error.WriteLine("Erreur : $Text") }
+    exit $Code
+}
 
 function Resolve-UserPath([string] $Path) {
     $here = (Get-Location).ProviderPath
@@ -60,17 +92,19 @@ function Start-Server([string] $Root) {
 }
 
 try {
-    switch ($Command.ToLowerInvariant()) {
-        'stop' {
-            if (Stop-GTViewer) { Write-Host 'Visualiseur arrêté.' } else { Write-Host "Le visualiseur n'était pas lancé." }
-            exit 0
+    if (-not $script:FromExplorer) {
+        switch ($Command.ToLowerInvariant()) {
+            'stop' {
+                if (Stop-GTViewer) { Write-Host 'Visualiseur arrêté.' } else { Write-Host "Le visualiseur n'était pas lancé." }
+                exit 0
+            }
+            { $_ -in @('help', '--help', '-h', 'aide', '/?') } { Show-Help; exit 0 }
         }
-        { $_ -in @('help', '--help', '-h', 'aide', '/?') } { Show-Help; exit 0 }
-    }
-    if ($Command.StartsWith('-')) {
-        [Console]::Error.WriteLine("Option inconnue : « $Command ».")
-        Show-Help
-        exit 1
+        if ($Command.StartsWith('-')) {
+            [Console]::Error.WriteLine("Option inconnue : « $Command ».")
+            Show-Help
+            exit 1
+        }
     }
 
     # Projet demandé (RG-28 : un dossier qui n'est pas un projet git est refusé)
@@ -79,7 +113,14 @@ try {
         $p = Resolve-UserPath $Command
         if (-not (Test-Path -LiteralPath $p -PathType Container)) { Fail "Dossier introuvable : $p" 2 }
         $root = Get-GTRepoRoot $p
-        if (-not $root) { Fail "« $p » n'est pas un projet git." 2 }
+        if (-not $root) {
+            if ($script:FromExplorer) {
+                Fail "« $p » n'est pas un projet git.`n`nFaites un clic droit sur le dossier d'un projet (ou sur l'un de ses sous-dossiers), ou ouvrez « git viewer » depuis le menu Démarrer pour choisir un projet dans la page." 2
+            }
+            Fail "« $p » n'est pas un projet git." 2
+        }
+    } elseif ($script:FromExplorer) {
+        $root = $null   # menu Démarrer : dernier projet consulté (VI-33)
     } else {
         $root = Get-GTRepoRoot (Resolve-UserPath '')
     }

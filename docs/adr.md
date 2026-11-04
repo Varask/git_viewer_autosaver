@@ -63,3 +63,15 @@ Chaque décision cite les exigences de l'analyse fonctionnelle qu'elle sert.
 ## ADR-11 — Graphe
 
 - **Décision** : `git log --date-order -n <limite> --parents` sur toutes les refs sauf `refs/stash` (et `refs/autosave/*` si masquées). Disposition en colonnes côté navigateur ; la chaîne des premiers parents de la branche principale (`origin/HEAD`, sinon `main`, `master`, `develop`, sinon branche courante) occupe la colonne 0 (VI-01).
+
+## ADR-12 — Intégration à l'Explorateur (L10)
+
+- **Décision** : verbe classique `git-tools.viewer` sous `HKCU\Software\Classes\Directory\shell` et `Directory\Background\shell` (aucune élévation, ENF-15), commande `conhost.exe --headless powershell.exe -File git-viewer.ps1 --explorer "%V"` (même lanceur sans fenêtre que ADR-05). Raccourci `git viewer` dans le menu Démarrer de l'utilisateur. Option `install.ps1 -NoShellMenu` ; retrait par `uninstall.ps1`.
+- En mode `--explorer`, le chemin reçu n'est jamais lu comme une sous-commande, et les erreurs s'affichent dans une boîte de dialogue (pas de console visible).
+- **Écarté** : le menu compact de Windows 11 (niveau 1, comme « Open with Code »). Il n'accepte que des extensions `IExplorerCommand` portées par une application empaquetée (MSIX ou paquet « sparse ») **signée** : il faudrait un binaire compilé et un certificat de la DSI, contraire à ENF-05 / FC3 en l'état. À reconsidérer si la DSI fournit un certificat de signature.
+
+## ADR-13 — Distribution (L10)
+
+- **Décision** : un zip `git-tools-<version>.zip` (dossier `git-tools-<version>/` à la racine) avec son empreinte `.sha256`, construit par `tools/build-package.ps1` et publié par GitHub Actions (`.github/workflows/ci.yml`) dans une Release, sur étiquette `vX.Y.Z`, **seulement si** le contrôle d'encodage, la recette Windows PowerShell 5.1 et les tests de l'interface passent. Le paquet contient le programme, `install.cmd`, `README.md`, le guide et la note DSI ; ni tests ni documents de conception. La version est portée par un fichier `VERSION` lu par `install.ps1`.
+- `install.cmd` détecte les fichiers marqués « téléchargés » et propose `Unblock-File` sur le seul dossier extrait, après accord explicite (`O`). C'est la procédure documentée d'ENF-06, pas un contournement de la stratégie (FC3) : en *Restricted* ou *AllSigned*, l'installation s'arrête comme avant.
+- **Écartés** : un exécutable (binaire non signé : blocage AppLocker / SmartScreen probable, contraire à la note DSI) ; un `tar.gz` (non ouvert par l'Explorateur).

@@ -9,8 +9,11 @@ git-tools garde des **points de reprise** de votre travail en cours entre deux c
 
 ## 1. Installation
 
-1. Copiez le dossier `git-tools` où vous voulez (par exemple dans vos Documents).
-2. Double-cliquez sur **`install.cmd`** (ou lancez `.\install.cmd` dans un terminal ouvert dans ce dossier).
+1. Téléchargez **`git-tools-<version>.zip`** depuis la page *Releases* du projet sur GitHub (le fichier `.sha256` publié à côté donne son empreinte : `Get-FileHash .\git-tools-<version>.zip`).
+2. Clic droit sur le zip → **Extraire tout…**, où vous voulez (par exemple dans vos Téléchargements : le programme est ensuite copié ailleurs).
+3. Dans le dossier extrait, double-cliquez sur **`install.cmd`** (ou lancez `.\install.cmd` dans un terminal ouvert dans ce dossier).
+
+   Les fichiers d'un zip téléchargé sont marqués « venant d'internet » et Windows refuse de les exécuter. `install.cmd` le détecte et **vous demande** s'il doit les débloquer (`O` / `N`) : il ne le fait jamais sans votre accord.
 
    Pour un seul outil : `.\install.cmd -Only autosave` ou `.\install.cmd -Only viewer`.
 
@@ -21,9 +24,9 @@ git-tools garde des **points de reprise** de votre travail en cours entre deux c
    ```
 
    *RemoteSigned* autorise les scripts présents sur le disque et refuse ceux téléchargés d'internet non débloqués. C'est la stratégie qu'imposent la plupart des postes d'entreprise. git-tools ne la contourne jamais lui-même. Si la commande est refusée, votre poste est géré par une DSI : voir [§ 7](#7-poste-verrouillé-par-la-dsi).
-3. Si vous préférez PowerShell directement : `.\install.ps1` (mêmes options).
+4. Si vous préférez PowerShell directement : `.\install.ps1` (mêmes options).
 
-4. **Ouvrez un nouveau terminal** : les commandes `git autosave` et `git viewer` y sont reconnues, depuis n'importe quel dossier.
+5. **Ouvrez un nouveau terminal** : les commandes `git autosave` et `git viewer` y sont reconnues, depuis n'importe quel dossier.
 
 L'installation copie le programme dans `%LOCALAPPDATA%\Programs\git-tools`, ajoute ce dossier à *votre* PATH, crée deux alias git (`autosave`, `viewer`) et une tâche planifiée à votre nom (`git-tools-autosave`). Vos réglages, la liste des projets et les journaux sont dans `%LOCALAPPDATA%\git-tools`.
 
@@ -70,6 +73,8 @@ git viewer C:\autre\projet
 git viewer stop
 ```
 
+**Sans terminal** : dans l'Explorateur, clic droit sur le dossier du projet (ou dans le fond du dossier ouvert) → **Ouvrir dans git viewer**. Sous Windows 11, l'entrée se trouve sous **Afficher plus d'options** (ou Maj + clic droit). Le raccourci **git viewer** du menu Démarrer rouvre le dernier projet consulté. Pour installer sans ces deux entrées : `install.ps1 -NoShellMenu`.
+
 La commande rend la main tout de suite ; la page s'ouvre dans votre navigateur. Vous pouvez fermer le terminal. Une seule instance tourne : relancer depuis un autre projet fait basculer la page déjà ouverte, sans nouvel onglet.
 
 Dans la page :
@@ -86,6 +91,10 @@ Le visualiseur n'est joignable que depuis votre poste (adresse `127.0.0.1`) et r
 
 ## 3. Réglages
 
+Le plus simple : dans le visualiseur, bouton **⚙ Réglages** de l'en-tête (sur téléphone ou fenêtre étroite : menu **⋯ → Réglages…**). Chaque réglage y est expliqué, avec sa valeur par défaut ; une modification s'applique tout de suite (l'intervalle met à jour la tâche planifiée et le compte à rebours), une valeur invalide est refusée avec les valeurs acceptées, et **Rétablir les valeurs par défaut** remet tout à zéro en une action (la liste des projets suivis et les points de reprise ne changent pas).
+
+Les mêmes réglages en ligne de commande :
+
 | Réglage | Commande | Défaut | Effet |
 | --- | --- | --- | --- |
 | Intervalle | `git autosave interval 15` | 30 min | Durée entre deux passages, de 5 à 240 min |
@@ -93,7 +102,8 @@ Le visualiseur n'est joignable que depuis votre poste (adresse `127.0.0.1`) et r
 | Partage | `git autosave share on` | off | Envoyer aussi les points de reprise sur le distant (et les y retirer au nettoyage) |
 | Inscription auto. | `git autosave autotrack off` | on | Tout projet ouvert dans le visualiseur est suivi |
 | Lanceur | `git autosave launcher wscript` | conhost | Programme qui lance la sauvegarde sans fenêtre (voir § 6) |
-| Commits affichés | liste *Afficher* dans le visualiseur | 400 | Taille de l'historique chargé |
+| Projets exclus | onglet Réglages (ou menu ⋯ → *Suivre ce projet*) | aucun | Projets jamais réinscrits automatiquement |
+| Commits affichés | onglet Réglages ; liste *Afficher* pour changer ponctuellement | 400 | Taille de l'historique chargé |
 
 Un réglage prend effet immédiatement. Ils sont tous stockés dans `%LOCALAPPDATA%\git-tools\config.json`.
 

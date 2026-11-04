@@ -217,3 +217,40 @@ test('ENF-07 : l’API refuse une requête sans jeton', async () => {
   const r = await page.evaluate(async () => (await fetch('/api/state')).status);
   assert.equal(r, 403);
 });
+
+test('R-20 / TR-10 / TR-11 : intervalle 30 → 15 depuis les réglages, valeur invalide refusée avec les bornes', async () => {
+  await page.click('#btn-settings');                                   // clic 1
+  const inp = page.locator('#set-intervalMin');
+  await inp.waitFor();
+  assert.equal(await inp.inputValue(), '30');
+  await inp.fill('15'); await inp.press('Enter');                      // clic 2 (saisie)
+  await within(5000, async () => /^1[45]:\d\d$/.test(await page.locator('#countdown').textContent()), 'compte à rebours sur 15 min');
+  await page.locator('#set-intervalMin').fill('3'); await page.locator('#set-intervalMin').press('Enter');
+  const err = page.locator('[data-key="intervalMin"] .field-err');
+  await err.waitFor({ state: 'visible' });
+  assert.match(await err.textContent(), /de 5 à 240/);
+  assert.equal(srv.shared.autosave.intervalMin, 15, 'valeur invalide enregistrée');
+});
+
+test('TR-10 : case à cocher, liste d’exclusion et retour aux valeurs par défaut en 1 action', async () => {
+  await page.click('#btn-settings');
+  await page.locator('#set-keepSeries').check();
+  await within(2000, async () => (await page.locator('[data-key="keepSeries"] .def').textContent()).startsWith('Par défaut'), 'valeur modifiée signalée');
+  await page.locator('#set-autoTrackExclude').getByRole('button', { name: 'Retirer' }).click();
+  await page.locator('[data-key="autoTrackExclude"]', { hasText: 'Aucun projet exclu' }).waitFor();
+  await page.click('#btn-settings-reset');
+  await page.click('#confirm-ok');
+  await within(2000, async () => !(await page.locator('#set-keepSeries').isChecked()), 'conservation désactivée');
+  assert.equal(await page.locator('#set-intervalMin').inputValue(), '30');
+});
+
+test('ENF-11 : réglages à 375 px sans défilement horizontal', async () => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.click('#btn-menu');
+  await page.getByRole('menuitem', { name: 'Réglages…' }).click();
+  await page.locator('#set-intervalMin').waitFor();
+  const over = await page.$eval('#dlg-settings', d => d.scrollWidth - d.clientWidth);
+  assert.ok(over <= 0, `dépassement de ${over} px`);
+  const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+  assert.ok(sw <= 375, `largeur ${sw}`);
+});

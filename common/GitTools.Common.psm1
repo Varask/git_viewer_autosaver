@@ -136,6 +136,87 @@ function Set-GTConfigValue {
     }
 }
 
+# ---------------------------------------------------------------- réglages regroupés (TR-05, TR-10, TR-11)
+
+function Get-GTSettingsSchema {
+    # Liste unique des réglages modifiables, chacun avec une phrase d'explication et sa valeur par
+    # défaut (TR-05). Affichée par l'onglet Réglages du visualiseur ; mêmes clés que config.json.
+    $list = @(
+        [ordered]@{ key = 'intervalMin'; tool = 'autosave'; type = 'int'; min = 5; max = 240; unit = 'min'
+            label = 'Intervalle de sauvegarde'
+            help = 'Durée entre deux points de reprise automatiques, de 5 à 240 minutes.' }
+        [ordered]@{ key = 'keepSeries'; tool = 'autosave'; type = 'bool'
+            label = 'Garder les points de reprise après un commit'
+            help = 'Sinon, les points de reprise d''une base sont effacés dès que vous committez.' }
+        [ordered]@{ key = 'shareRemote'; tool = 'autosave'; type = 'bool'
+            label = 'Envoyer les points de reprise sur le distant'
+            help = 'Pour reprendre le travail depuis un autre poste. Ils sont retirés du distant au nettoyage.' }
+        [ordered]@{ key = 'autoTrack'; tool = 'autosave'; type = 'bool'
+            label = 'Suivre automatiquement les projets ouverts ici'
+            help = 'Tout projet ouvert dans le visualiseur est inscrit à la sauvegarde automatique.' }
+        [ordered]@{ key = 'autoTrackExclude'; tool = 'autosave'; type = 'list'
+            label = 'Projets jamais inscrits automatiquement'
+            help = 'Projets retirés par « Ne plus suivre ce projet ». Retirez-en un de la liste pour qu''il soit de nouveau inscrit à l''ouverture.' }
+        [ordered]@{ key = 'launcher'; tool = 'autosave'; type = 'choice'; choices = @('conhost', 'wscript')
+            label = 'Lanceur sans fenêtre'
+            help = 'Programme qui lance la sauvegarde planifiée. Choisissez wscript si une fenêtre apparaît à chaque passage.' }
+        [ordered]@{ key = 'graphLimit'; tool = 'viewer'; type = 'int'; min = 50; max = 5000; unit = 'commits'
+            label = 'Commits chargés à l''ouverture'
+            help = 'Taille de l''historique affiché ; la liste « Afficher » permet d''en changer ponctuellement.' }
+    )
+    foreach ($s in $list) { $s['default'] = $script:DefaultConfig[$s.key] }
+    return $list
+}
+
+function ConvertTo-GTSettingValue {
+    # Valide et convertit une valeur reçue ; sinon erreur qui donne les valeurs acceptées (TR-11).
+    param([Parameter(Mandatory)] $Setting, [AllowNull()] $Value)
+    $label = $Setting.label
+    switch ($Setting.type) {
+        'int' {
+            $txt = if ($null -eq $Value -or $Value -is [bool]) { '' } else { ([string]$Value).Trim() }
+            $n = 0
+            if ($txt -notmatch '^\d{1,6}$' -or -not [int]::TryParse($txt, [ref]$n) -or $n -lt $Setting.min -or $n -gt $Setting.max) {
+                throw "« $txt » refusé pour « $label » : nombre entier de $($Setting.min) à $($Setting.max)."
+            }
+            return $n
+        }
+        'bool' {
+            if ($Value -isnot [bool]) { throw "Valeur refusée pour « $label » : activé ou désactivé." }
+            return $Value
+        }
+        'choice' {
+            $v = [string]$Value
+            if ($Setting.choices -cnotcontains $v) {
+                throw "« $v » refusé pour « $label » : valeurs acceptées $($Setting.choices -join ', ')."
+            }
+            return $v
+        }
+        'list' {
+            $items = @()
+            foreach ($x in @($Value)) {
+                if ($null -eq $x) { continue }
+                if ($x -isnot [string]) { throw "Valeur refusée pour « $label » : liste de chemins de dossiers attendue." }
+                $t = $x.Trim()
+                if ($t -and $items -notcontains $t) { $items += $t }
+            }
+            if ($items.Count -gt 500) { throw "Liste trop longue pour « $label » : 500 projets au plus." }
+            return , $items
+        }
+    }
+    throw "Type de réglage inconnu : $($Setting.type)"
+}
+
+function Reset-GTSettings {
+    # Retour aux valeurs par défaut en 1 action (TR-10). Projets suivis et points de reprise inchangés.
+    return Use-GTDataLock {
+        $cfg = Get-GTConfig
+        foreach ($s in Get-GTSettingsSchema) { $cfg[$s.key] = $script:DefaultConfig[$s.key] }
+        Write-GTJson (Join-Path (Get-GTDataDir) 'config.json') $cfg
+        $cfg
+    }
+}
+
 # ---------------------------------------------------------------- journal (SA-12, ENF-10)
 
 function Write-GTLog {
@@ -521,6 +602,87 @@ function Remove-GTUserPath {
     $kept = @($entries | Where-Object { -not (Test-GTSamePath $_ $Dir) })
     if ($kept.Count -eq $entries.Count) { return $false }
     Set-GTUserPathEntries $kept
+    return $true
+}
+
+# ---------------------------------------------------------------- intégration à l'Explorateur (L10)
+# Clic droit sur un dossier ou dans le fond d'un dossier : « Ouvrir dans git viewer » ; raccourci
+# « git viewer » dans le menu Démarrer. Clés HKCU et menu Démarrer de l'utilisateur seulement (ENF-15).
+# Windows 11 range ces entrées sous « Afficher plus d'options » : le menu compact n'accepte que des
+# applications empaquetées et signées (MSIX), hors de portée sans certificat de la DSI (ADR-12).
+
+$script:ShellVerb = 'git-tools.viewer'
+$script:ShellParents = @('Directory\shell', 'Directory\Background\shell')
+$script:ShortcutName = 'git viewer.lnk'
+
+function Get-GTViewerLaunch {
+    # Lancement sans fenêtre de console (FC4) : conhost --headless, comme la tâche planifiée (ADR-05).
+    param([Parameter(Mandatory)] [string] $ViewerPs1)
+    $exe = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    $arguments = '--headless "' + (Get-GTPowerShellExe) + '" -NoProfile -NonInteractive -File "' + $ViewerPs1 + '" --explorer'
+    return [pscustomobject]@{ Exe = $exe; Arguments = $arguments }
+}
+
+function Install-GTShellMenu {
+    # Idempotent : réécrit seulement nos propres clés (TR-06). ClassesKey permet aux tests d'isoler.
+    param(
+        [Parameter(Mandatory)] [string] $ViewerPs1,
+        [Parameter(Mandatory)] [string] $Icon,
+        [string] $ClassesKey = 'Software\Classes'
+    )
+    $l = Get-GTViewerLaunch $ViewerPs1
+    $cmd = '"' + $l.Exe + '" ' + $l.Arguments + ' "%V"'
+    foreach ($parent in $script:ShellParents) {
+        $k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("$ClassesKey\$parent\$($script:ShellVerb)")
+        try {
+            $k.SetValue('MUIVerb', 'Ouvrir dans git viewer')
+            $k.SetValue('Icon', $Icon)
+            $c = $k.CreateSubKey('command')
+            try { $c.SetValue('', $cmd) } finally { $c.Close() }
+        } finally { $k.Close() }
+    }
+}
+
+function Uninstall-GTShellMenu {
+    # Ne retire que la clé git-tools.viewer ; les entrées des autres logiciels restent intactes (TR-07).
+    param([string] $ClassesKey = 'Software\Classes')
+    $n = 0
+    foreach ($parent in $script:ShellParents) {
+        $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("$ClassesKey\$parent", $true)
+        if (-not $k) { continue }
+        try {
+            if ($k.GetSubKeyNames() -contains $script:ShellVerb) { $k.DeleteSubKeyTree($script:ShellVerb); $n++ }
+        } finally { $k.Close() }
+    }
+    return ($n -gt 0)
+}
+
+function Get-GTStartMenuDir { return (Join-Path ([Environment]::GetFolderPath('Programs')) 'git-tools') }
+
+function Install-GTStartMenu {
+    param(
+        [Parameter(Mandatory)] [string] $ViewerPs1,
+        [Parameter(Mandatory)] [string] $Icon,
+        [string] $Dir = (Get-GTStartMenuDir)
+    )
+    if (-not (Test-Path -LiteralPath $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
+    $l = Get-GTViewerLaunch $ViewerPs1
+    $sh = New-Object -ComObject WScript.Shell
+    $lnk = $sh.CreateShortcut((Join-Path $Dir $script:ShortcutName))
+    $lnk.TargetPath = $l.Exe
+    $lnk.Arguments = $l.Arguments
+    $lnk.WorkingDirectory = $env:SystemRoot
+    $lnk.IconLocation = "$Icon,0"
+    $lnk.Description = 'Ouvre le visualiseur sur le dernier projet consulté'
+    $lnk.Save()
+}
+
+function Uninstall-GTStartMenu {
+    param([string] $Dir = (Get-GTStartMenuDir))
+    $f = Join-Path $Dir $script:ShortcutName
+    if (-not (Test-Path -LiteralPath $f)) { return $false }
+    Remove-Item -LiteralPath $f -Force
+    if (-not (Get-ChildItem -LiteralPath $Dir -Force)) { Remove-Item -LiteralPath $Dir -Force }
     return $true
 }
 

@@ -696,6 +696,105 @@
   });
   document.querySelectorAll('dialog [data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
 
+  // ------------------------------------------------------------ réglages (TR-05, TR-10, TR-11, R-20)
+  const fmtVal = (s, v) => s.type === 'bool' ? (v ? 'activé' : 'désactivé')
+    : s.type === 'list' ? (v && v.length ? plural(v.length, 'projet', 'projets') : 'liste vide')
+    : s.unit ? `${v} ${s.unit}` : String(v);
+
+  function settingControl(s, row) {
+    const id = 'set-' + s.key, dis = !s.available;
+    const send = value => saveSetting(s, value, row);
+    if (s.type === 'bool') {
+      const cb = h('input', { type: 'checkbox', id, disabled: dis, 'aria-describedby': id + '-help' });
+      cb.checked = !!s.value;
+      cb.addEventListener('change', () => send(cb.checked));
+      return [cb];
+    }
+    if (s.type === 'int') {
+      const inp = h('input', { type: 'number', id, min: s.min, max: s.max, step: 1, inputmode: 'numeric', disabled: dis, 'aria-describedby': id + '-help' });
+      inp.value = String(s.value);
+      inp.addEventListener('change', () => send(inp.value.trim() === '' ? '' : Number(inp.value)));
+      return [inp, s.unit ? h('span', { class: 'unit', text: s.unit }) : null];
+    }
+    if (s.type === 'choice') {
+      const sel = h('select', { id, disabled: dis, 'aria-describedby': id + '-help' }, s.choices.map(c => h('option', { value: c }, c)));
+      sel.value = s.value;
+      sel.addEventListener('change', () => send(sel.value));
+      return [sel];
+    }
+    // liste : on ne peut qu'en retirer (les ajouts se font par « Ne plus suivre ce projet »)
+    const items = s.value || [];
+    if (!items.length) return [h('p', { class: 'muted empty-list', id, text: 'Aucun projet exclu.' })];
+    return [h('ul', { class: 'list', id }, items.map(p => h('li', null,
+      h('div', { class: 'grow' }, h('span', { class: 's mono', title: p, text: p })),
+      h('button', { type: 'button', class: 'btn small ghost', disabled: dis, onclick: () => send(items.filter(x => x !== p)) }, 'Retirer'))))];
+  }
+
+  function renderSettings(data) {
+    const body = $('settings-body');
+    body.textContent = '';
+    const groups = [['autosave', 'Sauvegarde automatique'], ['viewer', 'Visualiseur']];
+    groups.forEach(([tool, title]) => {
+      const list = data.items.filter(s => s.tool === tool);
+      if (!list.length) return;
+      const sec = h('section', { class: 'settings-group', 'aria-label': title }, h('h4', { text: title }));
+      if (tool === 'autosave' && !data.autosaveInstalled) sec.append(h('p', { class: 'muted', text: 'La sauvegarde automatique n’est pas installée sur ce poste : ces réglages sont sans effet.' }));
+      list.forEach(s => {
+        const row = h('div', { class: 'setting' + (s.type === 'list' ? ' wide' : '') + (s.available ? '' : ' off'), 'data-key': s.key });
+        const isDefault = JSON.stringify(s.value) === JSON.stringify(s.default);
+        row.append(
+          h('label', { class: 'lbl', for: 'set-' + s.key, text: s.label }),
+          h('div', { class: 'ctl' }, settingControl(s, row)),
+          h('p', { class: 'help', id: 'set-' + s.key + '-help' }, s.help, ' ',
+            h('span', { class: 'def', text: isDefault ? '(valeur par défaut)' : `Par défaut : ${fmtVal(s, s.default)}.` })),
+          h('p', { class: 'field-err', role: 'alert', hidden: true }));
+        sec.append(row);
+      });
+      body.append(sec);
+    });
+  }
+
+  function applyViewerSettings(data) {
+    const g = data.items.find(s => s.key === 'graphLimit');
+    if (g && g.value !== S.limit) {
+      S.limit = g.value; store.set('limit', String(g.value));
+      if (![...lim.options].some(o => Number(o.value) === S.limit)) lim.append(h('option', { value: String(S.limit) }, String(S.limit)));
+      lim.value = String(S.limit);
+      loadGraph();
+    }
+  }
+
+  async function saveSetting(s, value, row) {
+    const err = row.querySelector('.field-err');
+    err.hidden = true; err.textContent = '';
+    try {
+      const r = await api('/api/settings', { method: 'POST', body: { key: s.key, value } });
+      renderSettings(r); applyViewerSettings(r);
+      toast(r.message);
+      poll();
+      const again = $('settings-body').querySelector(`[data-key="${s.key}"] input, [data-key="${s.key}"] select`);
+      if (again) again.focus();
+    } catch (e) {
+      err.textContent = e.message; err.hidden = false;
+    }
+  }
+
+  async function openSettingsDialog() {
+    const dlg = $('dlg-settings');
+    if (!dlg.open) dlg.showModal();
+    try { renderSettings(await api('/api/settings')); } catch (e) { $('settings-body').textContent = ''; toast(e.message, true); }
+  }
+  $('btn-settings').addEventListener('click', openSettingsDialog);
+  $('btn-settings-reset').addEventListener('click', async ev => {
+    const b = ev.currentTarget;
+    if (!(await confirmDlg('Rétablir les valeurs par défaut ?', 'Tous les réglages de cette fenêtre reprennent leur valeur par défaut.\nLa liste des projets suivis et les points de reprise ne changent pas.', { ok: 'Rétablir' }))) return;
+    b.disabled = true;
+    try {
+      const r = await api('/api/settings', { method: 'POST', body: { reset: true } });
+      renderSettings(r); applyViewerSettings(r); toast(r.message); poll();
+    } catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+  });
+
   // ------------------------------------------------------------ distant (VI-20 à VI-22)
   $('btn-fetch').addEventListener('click', ev => act('fetch', {}, { btn: ev.currentTarget }));
   $('btn-pull').addEventListener('click', ev => act('pull', {}, { btn: ev.currentTarget }));
@@ -711,6 +810,7 @@
     if (!b) return;
     menu.hidden = true;
     const a = b.dataset.act;
+    if (a === 'settings') return openSettingsDialog();
     if (a === 'shutdown') {
       if (!(await confirmDlg('Arrêter le visualiseur ?', 'La page ne sera plus mise à jour. Relancez « git viewer » pour la rouvrir.', { danger: true, ok: 'Arrêter' }))) return;
       try { await api('/api/shutdown', { method: 'POST', body: {} }); } catch (err) { /* déjà arrêté */ }
