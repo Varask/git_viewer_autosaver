@@ -443,7 +443,9 @@ function Invoke-ViewerAction {
             $path = [string](Get-Prop $Data 'path')
             $full = Assert-RelPath $Repo $path
             $lit = (ConvertTo-Literal $path)[0]
-            $inHead = $hasHead -and [bool](Get-GitValue $Repo @('ls-tree', '--name-only', 'HEAD', '--', $lit))
+            # « HEAD:<chemin> » plutôt que ls-tree + pathspec : ls-tree a répondu pour un fichier absent de
+            # HEAD sous Git for Windows 2.56 (recette CI), ce qui envoyait vers la restauration au lieu de la suppression.
+            $inHead = $hasHead -and ((Invoke-Git $Repo @('cat-file', '-e', "HEAD:$($path.Replace('\', '/'))") -AllowFail).ExitCode -eq 0)
             if ($inHead) {
                 return Invoke-GitAction $Repo @('restore', '--source=HEAD', '--staged', '--worktree', '--', $lit) "Modifications abandonnées : $path"
             }
@@ -574,14 +576,22 @@ function Invoke-ViewerAction {
 
         'fetch' { return Invoke-GitAction $Repo @('fetch', '--all', '--prune') 'État du distant récupéré.' 300 }
         'pull' {
-            # RG-22 : jamais de fusion implicite.
-            $r = Invoke-Git $Repo @('pull', '--ff-only', '--no-rebase') -TimeoutSec 300 -AllowFail
-            if ($r.ExitCode -eq 0) { return New-ActionResult $true 'Commits distants récupérés.' }
-            $e = Get-GitError $r
-            if ($e -match 'Not possible to fast-forward|diverg|non-fast-forward') {
+            # RG-22 : jamais de fusion implicite. Récupération puis avance rapide explicite :
+            # on ne dépend pas de la combinaison --ff-only / --no-rebase, interprétée selon la version de git.
+            if (-not $hasHead) { Throw-Viewer 'Aucun commit local : rien à mettre à jour.' }
+            $up = Get-GitValue $Repo @('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
+            if (-not $up) { return New-ActionResult $false 'Cette branche ne suit aucune branche distante : poussez-la d''abord (Pousser).' }
+            $f = Invoke-Git $Repo @('fetch', '--quiet') -TimeoutSec 300 -AllowFail
+            if ($f.ExitCode -ne 0) { return New-ActionResult $false ("Échec de la récupération : " + (Get-GitError $f)) }
+            $canFf = (Invoke-Git $Repo @('merge-base', '--is-ancestor', 'HEAD', '@{u}') -AllowFail).ExitCode -eq 0
+            if (-not $canFf) {
+                $ahead = (Invoke-Git $Repo @('merge-base', '--is-ancestor', '@{u}', 'HEAD') -AllowFail).ExitCode -eq 0
+                if ($ahead) { return New-ActionResult $true 'Déjà à jour : aucun nouveau commit distant.' }
                 return New-ActionResult $false 'Tirage refusé : votre branche et le distant ont divergé. Aucune fusion n''a été faite.'
             }
-            return New-ActionResult $false ("Échec : $e")
+            $m = Invoke-Git $Repo @('merge', '--ff-only', '--quiet', '@{u}') -TimeoutSec 300 -AllowFail
+            if ($m.ExitCode -ne 0) { return New-ActionResult $false ("Échec : " + (Get-GitError $m)) }
+            return New-ActionResult $true 'Commits distants récupérés.'
         }
         'push' {
             $branch = Get-GitValue $Repo @('symbolic-ref', '-q', '--short', 'HEAD')

@@ -24,6 +24,10 @@ function check(p) {
   const rel = path.relative(root, p);
   const hasBom = buf.subarray(0, 3).equals(BOM);
   if (ext === '.ps1' || ext === '.psm1') {
+    // Windows PowerShell 5.1 traite ‘ ’ ‚ ‛ comme des apostrophes et “ ” „ comme des guillemets :
+    // dans une chaîne, ils la ferment et rendent le script illisible. Utiliser '' ou « ».
+    const q = buf.toString('utf8').split(/\r?\n/).map((l, i) => /[\u2018-\u201E]/.test(l) ? i + 1 : 0).filter(Boolean);
+    if (q.length) { console.log(`ERREUR   ${rel} : guillemet ou apostrophe typographique ligne(s) ${q.join(', ')}`); bad++; }
     if (!hasBom) {
       if (fix) { fs.writeFileSync(p, Buffer.concat([BOM, buf])); console.log(`corrigé  ${rel} (BOM ajouté)`); }
       else { console.log(`ERREUR   ${rel} : BOM UTF-8 absent`); bad++; }
