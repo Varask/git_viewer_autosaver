@@ -309,6 +309,8 @@ Test-Case 'ENF-10 : journal limité à 1 Mo' {
 
 Test-Case 'R-16 / TR-04 : aide avec l''état, sans commande ou commande inconnue' {
     $ps1 = Join-Path $Root 'autosave\git-autosave.ps1'
+    # PowerShell 5.1 : avec « Stop », une ligne d'erreur d'un programme redirigée par 2>&1 interrompt le test.
+    $ErrorActionPreference = 'Continue'
     $out = & powershell.exe -NoProfile -File $ps1 2>&1 | Out-String
     Assert-Equal $LASTEXITCODE 0 'code de sortie sans commande'
     Assert-True ($out -match 'ÉTAT' -and $out -match 'Projets suivis') "aide sans état : $out"
@@ -471,8 +473,11 @@ Test-Case 'R-13 / VI-13 : annuler le dernier commit, modifications indexées' {
 Test-Case 'VI-11 : annuler un fichier ; nouveau fichier supprimé' {
     Assert-True (Act 'discard' @{ path = 'a.txt' }).Body.ok 'annulation'
     Assert-Equal ([System.IO.File]::ReadAllText((Join-Path $V 'a.txt'))) "un`n" 'contenu HEAD'
-    Assert-True (Act 'discard' @{ path = 'nouveau é.txt' }).Body.ok 'suppression'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $V 'nouveau é.txt'))) 'fichier encore présent'
+    $d = Act 'discard' @{ path = 'nouveau é.txt' }
+    Assert-True $d.Body.ok "suppression : $($d.Body.message)"
+    $left = Test-Path -LiteralPath (Join-Path $V 'nouveau é.txt')
+    Assert-True (-not $left) ("fichier encore présent — réponse « $($d.Body.message) », état :`n" + (G $V @('status', '--porcelain', '--untracked-files=all')) +
+        "`nHEAD : " + (G $V @('ls-tree', '-r', '--name-only', 'HEAD')))
 }
 
 Test-Case 'VI-14 : mettre de côté et réappliquer, nouveaux fichiers inclus' {

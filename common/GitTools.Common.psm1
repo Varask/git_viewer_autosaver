@@ -311,7 +311,8 @@ function Invoke-Git {
     #>
     param(
         [Parameter(Mandatory)] [string] $Repo,
-        [Parameter(Mandatory)] [string[]] $Arguments,
+        # Un argument vide est légitime : « git update-ref <ref> <nouveau> "" » = la ref ne doit pas exister.
+        [Parameter(Mandatory)] [AllowEmptyString()] [string[]] $Arguments,
         [hashtable] $Environment = @{},
         [int] $TimeoutSec = 120,
         [switch] $AllowFail
