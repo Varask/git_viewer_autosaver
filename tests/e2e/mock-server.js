@@ -28,6 +28,35 @@ function start({ repo, port = 0, token = 'a1b2c3d4e5f60718293a4b5c6d7e8f90', aut
   const json = (res, status, obj) => { const b = Buffer.from(JSON.stringify(obj)); res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': b.length, 'Cache-Control': 'no-store' }); res.end(b); };
   const fail = (status, message) => Object.assign(new Error(message), { status });
 
+  // Réglages : même schéma et mêmes messages que Get-GTSettingsSchema / ConvertTo-GTSettingValue.
+  const SCHEMA = [
+    { key: 'intervalMin', tool: 'autosave', type: 'int', min: 5, max: 240, unit: 'min', default: 30, label: 'Intervalle de sauvegarde', help: 'Durée entre deux passages.' },
+    { key: 'keepSeries', tool: 'autosave', type: 'bool', default: false, label: 'Garder les points de reprise après un commit', help: '…' },
+    { key: 'shareRemote', tool: 'autosave', type: 'bool', default: false, label: 'Envoyer les points de reprise sur le distant', help: '…' },
+    { key: 'autoTrack', tool: 'autosave', type: 'bool', default: true, label: 'Suivre automatiquement les projets ouverts ici', help: '…' },
+    { key: 'autoTrackExclude', tool: 'autosave', type: 'list', default: [], label: 'Projets jamais inscrits automatiquement', help: '…' },
+    { key: 'launcher', tool: 'autosave', type: 'choice', choices: ['conhost', 'wscript'], default: 'conhost', label: 'Lanceur sans fenêtre', help: '…' },
+    { key: 'graphLimit', tool: 'viewer', type: 'int', min: 50, max: 5000, unit: 'commits', default: 400, label: 'Commits chargés à l’ouverture', help: '…' }
+  ];
+  const cfg = Object.fromEntries(SCHEMA.map(s => [s.key, s.default]));
+  cfg.autoTrackExclude = ['C:\\Projets\\ancien projet'];
+  function settings(extra) {
+    return Object.assign({ autosaveInstalled: true, items: SCHEMA.map(s => Object.assign({}, s, { value: cfg[s.key], available: true })) }, extra || {});
+  }
+  function setSetting(data) {
+    if (data.reset) { SCHEMA.forEach(s => { cfg[s.key] = s.default; }); shared.autosave.intervalMin = cfg.intervalMin; return settings({ ok: true, message: 'Réglages remis à leurs valeurs par défaut.' }); }
+    const s = SCHEMA.find(x => x.key === data.key);
+    if (!s) throw fail(400, `Réglage inconnu : « ${data.key} ».`);
+    let v = data.value;
+    if (s.type === 'int' && !(Number.isInteger(v) || /^\d+$/.test(String(v))) || s.type === 'int' && (+v < s.min || +v > s.max)) throw fail(400, `« ${v} » refusé pour « ${s.label} » : nombre entier de ${s.min} à ${s.max}.`);
+    if (s.type === 'int') v = +v;
+    if (s.type === 'bool' && typeof v !== 'boolean') throw fail(400, `Valeur refusée pour « ${s.label} » : activé ou désactivé.`);
+    if (s.type === 'choice' && !s.choices.includes(v)) throw fail(400, `« ${v} » refusé pour « ${s.label} » : valeurs acceptées ${s.choices.join(', ')}.`);
+    cfg[s.key] = v;
+    if (s.key === 'intervalMin') { shared.autosave.intervalMin = v; shared.nextRun = Date.now() + v * 60000; }
+    return settings({ ok: true, message: `${s.label} : ${s.type === 'bool' ? (v ? 'activé' : 'désactivé') : s.type === 'list' ? 'liste mise à jour' : v + (s.unit ? ' ' + s.unit : '')}.` });
+  }
+
   function state() {
     const r = shared.project;
     const branch = val(r, ['symbolic-ref', '-q', '--short', 'HEAD']);
@@ -201,6 +230,8 @@ function start({ repo, port = 0, token = 'a1b2c3d4e5f60718293a4b5c6d7e8f90', aut
           }
           case 'POST /api/browse': return json(res, 200, { ok: false, message: 'Aucun dossier choisi.' });
           case 'POST /api/action': return json(res, 200, action(data.name, data.args));
+          case 'GET /api/settings': return json(res, 200, settings());
+          case 'POST /api/settings': return json(res, 200, setSetting(data));
           case 'POST /api/shutdown': shared.stopped = true; return json(res, 200, { ok: true });
           default: return json(res, 404, { ok: false, message: 'Route inconnue' });
         }

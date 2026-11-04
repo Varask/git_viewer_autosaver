@@ -270,6 +270,25 @@ dialog h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; lett
 .inline { display: flex; gap: 6px; flex-wrap: wrap; }
 .inline input { flex: 1; min-width: 160px; height: 30px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: var(--radius); background: var(--bg); font-family: var(--mono); font-size: 13px; }
 
+/* ---------- réglages (TR-10) */
+#dlg-settings { width: min(640px, calc(100vw - 32px)); }
+.settings-intro { margin: 6px 0 4px; font-size: 12.5px; }
+.settings-group h4 { margin-top: 16px; }
+.setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.setting .lbl { font-weight: 600; }
+.setting .ctl { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 6px; justify-self: end; }
+.setting .help { grid-column: 1; margin: 0; color: var(--muted); font-size: 12.5px; }
+.setting .def { white-space: nowrap; }
+.setting .field-err { grid-column: 1 / -1; margin: 4px 0 0; color: var(--danger); font-size: 12.5px; }
+.setting input[type="number"], .setting select { height: 30px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: var(--radius); background: var(--bg); }
+.setting input[type="number"] { width: 84px; font-family: var(--mono); }
+.setting input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.setting .unit { color: var(--muted); font-size: 12.5px; }
+.setting.wide .ctl { grid-column: 1 / -1; grid-row: auto; justify-self: stretch; display: block; }
+.setting.wide .list { margin: 4px 0 0; max-height: 30vh; }
+.setting .empty-list { margin: 2px 0 0; font-size: 12.5px; }
+.setting.off { opacity: .6; }
+
 /* ---------- notifications */
 .toast-zone { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; max-width: min(440px, calc(100vw - 32px)); }
 .toast { padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); box-shadow: var(--shadow); font-size: 13.5px; }
@@ -282,6 +301,11 @@ dialog h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; lett
   .history { border-right: 0; border-bottom: 1px solid var(--border); max-height: 58vh; }
   .panel { overflow: visible; }
   .autosave { margin-left: 0; }
+}
+@media (max-width: 520px) {
+  .setting { grid-template-columns: minmax(0, 1fr); }
+  .setting .ctl { grid-column: 1; grid-row: auto; justify-self: start; }
+  .setting input[type="number"], .setting select { height: 36px; }
 }
 @media (max-width: 520px), (pointer: coarse) {
   .btn, .icon { height: 36px; min-width: 36px; }
@@ -307,6 +331,7 @@ dialog h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; lett
   .remote { flex: 1; }
   .remote .btn { flex: 1; padding: 0 6px; }
   .switch span { display: none; }
+  #btn-settings { display: none; }   /* menu ⋯ → Réglages… : l'en-tête garde deux lignes */
   .row { grid-template-columns: var(--gw, 40px) minmax(0, 1fr) auto; padding-right: 10px; }
   .row .who { display: none; }
   .history-head .limit { font-size: 0; }

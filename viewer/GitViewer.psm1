@@ -638,6 +638,65 @@ function Invoke-ViewerAction {
     }
 }
 
+# ---------------------------------------------------------------- réglages (TR-05, TR-10, TR-11, R-20)
+
+function Get-ViewerSettings {
+    $cfg = Get-GTConfig
+    $items = foreach ($s in Get-GTSettingsSchema) {
+        $o = [ordered]@{}
+        foreach ($k in $s.Keys) { $o[$k] = $s[$k] }
+        $o['value'] = $cfg[$s.key]
+        $o['available'] = ($s.tool -ne 'autosave') -or [bool]$script:HasAutosave
+        $o
+    }
+    return [ordered]@{ autosaveInstalled = [bool]$script:HasAutosave; items = @($items) }
+}
+
+function Update-ViewerSchedule($Old, $New) {
+    # TR-11 : un nouvel intervalle ou lanceur s'applique tout de suite à la tâche planifiée.
+    # Renvoie un avertissement si la tâche n'a pas pu être mise à jour. GITTOOLS_NOTASK : tests.
+    if (-not $script:HasAutosave -or $env:GITTOOLS_NOTASK -eq '1') { return $null }
+    if ([int]$Old.intervalMin -eq [int]$New.intervalMin -and [string]$Old.launcher -eq [string]$New.launcher) { return $null }
+    try {
+        if (Get-AutosaveTask) { Register-AutosaveTask (Get-GTConfig) }
+        return $null
+    } catch {
+        return "Réglage enregistré, mais la tâche planifiée n'a pas pu être mise à jour : $($_.Exception.Message)"
+    }
+}
+
+function Set-ViewerSettings($Data) {
+    $old = Get-GTConfig
+    if ([bool](Get-Prop $Data 'reset' $false)) {
+        $new = Reset-GTSettings
+        $warn = Update-ViewerSchedule $old $new
+        Write-GTLog viewer INFO '' 'Réglages remis aux valeurs par défaut.'
+        $r = Get-ViewerSettings
+        $r['ok'] = -not $warn
+        $r['message'] = if ($warn) { $warn } else { 'Réglages remis à leurs valeurs par défaut.' }
+        return $r
+    }
+    $key = [string](Get-Prop $Data 'key' '')
+    $s = @(Get-GTSettingsSchema | Where-Object { $_.key -ceq $key }) | Select-Object -First 1
+    if (-not $s) { Throw-Viewer "Réglage inconnu : « $key »." }
+    if ($s.tool -eq 'autosave' -and -not $script:HasAutosave) {
+        Throw-Viewer 'La sauvegarde automatique n''est pas installée sur ce poste : ce réglage est sans effet.'
+    }
+    try { $v = ConvertTo-GTSettingValue $s (Get-Prop $Data 'value') } catch { Throw-Viewer $_.Exception.Message }
+    $new = Set-GTConfigValue $key $v
+    $warn = Update-ViewerSchedule $old $new
+    $shown = switch ($s.type) {
+        'bool' { if ($v) { 'activé' } else { 'désactivé' } }
+        'list' { 'liste mise à jour' }
+        default { if ($s.unit) { "$v $($s.unit)" } else { "$v" } }
+    }
+    Write-GTLog viewer INFO '' "Réglage $key : $shown"
+    $r = Get-ViewerSettings
+    $r['ok'] = -not $warn
+    $r['message'] = if ($warn) { $warn } else { "$($s.label) : $shown." }
+    return $r
+}
+
 # ---------------------------------------------------------------- HTTP : routage et sécurité (ADR-08)
 
 function New-ViewerResponse([int] $Status, [string] $ContentType, $Body) {
@@ -849,6 +908,8 @@ function Invoke-ViewerRequest {
                 Write-GTLog viewer $(if ($res.ok) { 'INFO' } else { 'WARN' }) $repo "$name : $($res.message)"
                 return New-JsonResponse 200 $res
             }
+            'GET /api/settings' { return New-JsonResponse 200 (Get-ViewerSettings) }
+            'POST /api/settings' { return New-JsonResponse 200 (Set-ViewerSettings $data) }
             'POST /api/shutdown' {
                 $Shared.stop = $true
                 return New-JsonResponse 200 @{ ok = $true; message = 'Visualiseur arrêté.' }
@@ -863,5 +924,5 @@ function Invoke-ViewerRequest {
     }
 }
 
-Export-ModuleMember -Function Invoke-ViewerRequest, Invoke-ViewerAction, Get-Viewer*, Resolve-ViewerProject,
+Export-ModuleMember -Function Invoke-ViewerRequest, Invoke-ViewerAction, Get-Viewer*, Set-ViewerSettings, Resolve-ViewerProject,
     Set-ViewerProject, Open-ViewerTabIfNeeded, Test-ViewerPageAlive

@@ -43,6 +43,9 @@
     <button type="button" class="icon" id="btn-theme" title="Thème : système" aria-label="Changer de thème">
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" class="fill"/></svg>
     </button>
+    <button type="button" class="icon" id="btn-settings" title="Réglages" aria-haspopup="dialog" aria-label="Réglages">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.55 1.55M11.05 11.05l1.55 1.55M3.4 12.6l1.55-1.55M11.05 4.95l1.55-1.55"/><circle cx="8" cy="8" r="4.3"/></svg>
+    </button>
     <button type="button" class="icon" id="btn-menu" title="Plus d'actions" aria-haspopup="menu" aria-label="Plus d'actions">
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.3" class="fill"/><circle cx="8" cy="8" r="1.3" class="fill"/><circle cx="13" cy="8" r="1.3" class="fill"/></svg>
     </button>
@@ -51,6 +54,7 @@
       <button type="button" role="menuitem" data-act="track" id="menu-track">Suivre ce projet</button>
       <button type="button" role="menuitem" data-act="stash">Mettre de côté</button>
       <button type="button" role="menuitem" data-act="stashPop" id="menu-stashpop">Réappliquer le dernier mis de côté</button>
+      <button type="button" role="menuitem" data-act="settings">Réglages…</button>
       <hr>
       <button type="button" role="menuitem" data-act="shutdown" class="danger">Arrêter le visualiseur</button>
     </div>
@@ -133,6 +137,18 @@
   <ul class="list" id="branch-local"></ul>
   <h4>Distantes</h4>
   <ul class="list" id="branch-remote"></ul>
+</dialog>
+
+<dialog id="dlg-settings" aria-labelledby="settings-title">
+  <div class="dlg-head">
+    <h3 id="settings-title">Réglages</h3>
+    <button type="button" class="icon" data-close aria-label="Fermer">✕</button>
+  </div>
+  <p class="muted settings-intro">Chaque modification s'applique tout de suite, sans redémarrage. Les mêmes réglages valent pour la commande <code>git autosave</code>.</p>
+  <div id="settings-body"><p class="muted">Chargement…</p></div>
+  <div class="dlg-actions">
+    <button type="button" class="btn ghost" id="btn-settings-reset">Rétablir les valeurs par défaut</button>
+  </div>
 </dialog>
 
 <script src="/graph.js"></script>

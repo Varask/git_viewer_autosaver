@@ -13,7 +13,7 @@ let bad = 0;
 
 function walk(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (['.git', 'node_modules', '.claude', 'test-results'].includes(e.name)) continue;
+    if (['.git', 'node_modules', '.claude', 'test-results', 'dist'].includes(e.name)) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p); else check(p);
   }

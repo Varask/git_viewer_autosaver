@@ -7,11 +7,14 @@ Deux outils Windows pour les projets git, utilisables séparément :
 
 Windows 10 21H2+ / 11, Git for Windows, aucun droit administrateur, aucune connexion internet.
 
+**Installer** : téléchargez `git-tools-<version>.zip` dans les *Releases* GitHub, *Extraire tout*, double-cliquez sur `install.cmd`. Ensuite, clic droit sur le dossier d'un projet → **Ouvrir dans git viewer** ; les réglages sont dans le visualiseur (⚙). En ligne de commande :
+
 ```powershell
-.\install.cmd          # vérifie la stratégie d'exécution puis installe ; ensuite, dans un nouveau terminal :
 git autosave add
 git viewer
 ```
+
+**Publier une version** : `git tag v1.1.0` puis `git push origin v1.1.0`. La CI (`.github/workflows/ci.yml`) rejoue toute la recette et, si elle passe, publie le zip et son empreinte SHA-256 dans une Release. Sans étiquette, chaque push produit un zip de test dans l'onglet *Actions*.
 
 | Document | Contenu |
 | --- | --- |
@@ -25,7 +28,9 @@ git viewer
 ## Structure
 
 ```
-install.ps1 / uninstall.ps1
+install.cmd / install.ps1 / uninstall.ps1
+tools/build-package.ps1          construction du zip (utilisé par la CI)
+.github/workflows/ci.yml         recette + publication
 common/GitTools.Common.psm1     appel de git, réglages, journal, PATH, client local
 autosave/                        moteur, commande git-autosave, lanceur sans fenêtre
 viewer/                          serveur 127.0.0.1, commande git-viewer, page (www/)

@@ -16,6 +16,7 @@
 | L8 Recette | ✅ E2E interface 18/18 · ⏳ `tests\Run-Tests.ps1` à exécuter sous Windows · ⏳ scénarios manuels | `tests/`, `docs/RECETTE.md` |
 | L9 Docs | ✅ Guide (7 thèmes), note DSI, fiche de recette | `docs/` |
 | Porte V1 (`reality-checker`) | ⏳ après exécution de la recette Windows | — |
+| L10 Sans ligne de commande | 🟡 Clic droit, menu Démarrer, onglet Réglages, zip + CI/Release codés · E2E 21/21 · ⏳ recette Windows et premier tag | ADR-12, ADR-13, `tests/`, `.github/workflows/ci.yml` |
 
 ---
 
@@ -213,8 +214,21 @@ Exigences : VI-10 à VI-17, VI-20 à VI-22, VI-35, RG-20 à RG-25.
 - [x] `docs/GUIDE.md` : installation, usage, réglages, restauration, désinstallation, dépannage, blocage par les règles du poste (TR-09, R-18).
 - [x] Note DSI : ce que fait le produit, où il écrit, ce qu'il ne fait pas (aucune élévation, aucun réseau sortant).
 
+### L10 — Prise en main sans ligne de commande (ajouté le 04/11/2026)
+**Pilote** : Developer Tooling Engineer · **Conseil** : Software Architect (ADR-12), UX Architect (onglet Réglages) · **Revue** : Code Reviewer
+
+Constat (essai en se mettant à la place d'un utilisateur) : devoir taper des commandes freine l'adoption.
+
+- [x] Clic droit « Ouvrir dans git viewer » sur un dossier et dans le fond d'un dossier, raccourci du menu Démarrer, sans console visible, erreurs en boîte de dialogue ; `-NoShellMenu` ; retrait à la désinstallation (ADR-12, ENF-15, TR-06, TR-07).
+- [x] Test automatisé (clés sous une racine de test jetable) + scénario manuel L10 dans `docs/RECETTE.md`.
+- [ ] Recette L10 sur Windows 10 et Windows 11.
+- [x] **Paquet zip** (ADR-13) : `tools/build-package.ps1` → `dist/git-tools-<version>.zip` + `.sha256`, contrôles BOM/CRLF ; fichier `VERSION` lu par l'installation ; `install.cmd` propose le déblocage après accord explicite.
+- [x] **CI/CD GitHub Actions** (`.github/workflows/ci.yml`) : encodage + recette Windows PS 5.1 + E2E Playwright → zip en artefact à chaque push ; Release GitHub avec le zip sur étiquette `vX.Y.Z`.
+- [ ] Créer le dépôt GitHub, pousser, vérifier un premier passage vert de la CI, puis étiqueter `v1.1.0`.
+- [x] **Onglet Réglages** (TR-05, TR-10, TR-11 avancés de la V2) : `GET/POST /api/settings`, schéma unique `Get-GTSettingsSchema` (explication + défaut), validation serveur avec valeurs acceptées, tâche planifiée réenregistrée si l'intervalle ou le lanceur change, retrait d'une exclusion, « Rétablir les valeurs par défaut » ; R-20 automatisé (`Run-Tests.ps1` + E2E).
+
 ### V2 (après la V1)
-TR-05, TR-10, TR-11 (paramétrage centralisé, réglages depuis le visualiseur, application à chaud, R-20) puis les évolutions §11 de l'AF : comparer deux points de reprise, restaurer un seul fichier, pause par projet, journal dans le visualiseur.
+(TR-05, TR-10, TR-11 avancés en L10) Les évolutions §11 de l'AF : comparer deux points de reprise, restaurer un seul fichier, pause par projet, journal dans le visualiseur.
 
 ---
 

@@ -41,6 +41,8 @@ if ($remove -contains 'viewer') {
     [void](Remove-GTUserPath (Join-Path $dest 'viewer'))
     Remove-GitAlias 'viewer'
     Step 'Commande « git viewer » retirée.'
+    if (Uninstall-GTShellMenu) { Step 'Entrée « Ouvrir dans git viewer » retirée du clic droit.' }
+    if (Uninstall-GTStartMenu) { Step 'Raccourci « git viewer » retiré du menu Démarrer.' }
 }
 
 if ($remove -contains 'autosave') {
@@ -67,11 +69,11 @@ $isSourceTree = (Test-Path -LiteralPath (Join-Path $dest 'tests')) -or (Test-Pat
 $installedHere = (Split-Path -Leaf $dest) -eq 'git-tools' -and (Test-Path -LiteralPath (Join-Path $dest 'install.ps1')) -and -not $isSourceTree
 if ($left.Count) {
     if ($installedHere) { Remove-Installed $dest $remove }
-    Write-GTJson $manifestFile ([ordered]@{ destination = $dest; components = $left; date = (Get-Date).ToString('o'); version = '1.0.0' })
+    Write-GTJson $manifestFile ([ordered]@{ destination = $dest; components = $left; date = (Get-Date).ToString('o'); version = $(if ($manifest -and $manifest.version) { [string]$manifest.version } else { 'dev' }) })
 } else {
     Remove-Item -LiteralPath $manifestFile -Force -ErrorAction SilentlyContinue
     if ($installedHere -and -not $sourceRun) {
-        Remove-Installed $dest @('common', 'autosave', 'viewer', 'docs', 'install.ps1', 'uninstall.ps1')
+        Remove-Installed $dest @('common', 'autosave', 'viewer', 'docs', 'install.ps1', 'uninstall.ps1', 'VERSION')
         if (-not (Get-ChildItem -LiteralPath $dest -Force)) { Remove-Item -LiteralPath $dest -Force }
         Step "Programme retiré de $dest."
     } elseif ($installedHere) {
@@ -79,7 +81,7 @@ if ($left.Count) {
         $sys = Join-Path $env:SystemRoot 'System32'
         $items = @('common', 'autosave', 'viewer', 'docs') | ForEach-Object { "rmdir /s /q `"$(Join-Path $dest $_)`"" }
         $cmd = "`"$sys\PING.EXE`" -n 3 127.0.0.1 >nul & " + ($items -join ' & ') +
-               " & del /q `"$(Join-Path $dest 'install.ps1')`" `"$(Join-Path $dest 'uninstall.ps1')`" & rmdir `"$dest`""
+               " & del /q `"$(Join-Path $dest 'install.ps1')`" `"$(Join-Path $dest 'uninstall.ps1')`" `"$(Join-Path $dest 'VERSION')`" & rmdir `"$dest`""
         Start-Process -FilePath (Join-Path $sys 'cmd.exe') -ArgumentList "/c $cmd" -WindowStyle Hidden -WorkingDirectory $env:SystemRoot
         Step "Programme retiré de $dest (dans quelques secondes)."
     } else {
