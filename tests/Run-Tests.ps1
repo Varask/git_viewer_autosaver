@@ -82,7 +82,9 @@ function Assert-Unchanged($Before, $After) {
         Assert-Equal $After.$p $Before.$p "FC1 : $p modifié par le produit"
     }
 }
-function Get-Series([string] $Repo) { @(Get-AutosaveSeries $Repo) }
+# Toujours un tableau : une série unique serait sinon déroulée en objet, et « .Count » lirait alors
+# sa propriété Count (nombre de points) au lieu du nombre de séries.
+function Get-Series([string] $Repo) { return , @(Get-AutosaveSeries $Repo) }
 function Set-Projects([string[]] $P) { Set-GTList 'projects' $P }
 
 Write-Host "git-tools — recette automatisée ($($PSVersionTable.PSVersion), git $((Invoke-Git $TmpBase @('--version')).Out.Trim()))"
@@ -529,15 +531,15 @@ Test-Case 'RG-29 : noms de branche, identifiants et chemins invalides refusés' 
 
 Test-Case 'RG-22 / VI-20 / VI-21 / VI-22 : distant — récupérer, tirage sans fusion, pousser' {
     $bare = Join-Path $TmpBase 'distant é.git'
-    [void](Invoke-Git $TmpBase @('init', '-q', '--bare', $bare))
+    [void](Invoke-Git $TmpBase @('init', '-q', '--bare', '--initial-branch=main', $bare))
     [void](Invoke-Git $V @('remote', 'add', 'origin', $bare))
     $p = Act 'push'
     Assert-True $p.Body.ok "premier envoi : $($p.Body.message)"
     $clone = Join-Path $TmpBase 'clone é'
-    [void](Invoke-Git $TmpBase @('clone', '-q', $bare, $clone))
+    [void](Invoke-Git $TmpBase @('clone', '-q', '--branch', 'main', $bare, $clone))
     [void](Invoke-Git $clone @('config', 'user.name', 'B')); [void](Invoke-Git $clone @('config', 'user.email', 'b@b'))
     Write-File $clone 'distant.txt' "d`n"; [void](Invoke-Git $clone @('add', '-A')); [void](Invoke-Git $clone @('commit', '-qm', 'distant'))
-    [void](Invoke-Git $clone @('push', '-q'))
+    [void](Invoke-Git $clone @('push', '-q', 'origin', 'main'))
     $before = Get-Snapshot $V
     Assert-True (Act 'fetch').Body.ok 'récupération'
     $after = Get-Snapshot $V

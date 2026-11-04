@@ -443,7 +443,9 @@ function Invoke-ViewerAction {
             $path = [string](Get-Prop $Data 'path')
             $full = Assert-RelPath $Repo $path
             $lit = (ConvertTo-Literal $path)[0]
-            $inHead = $hasHead -and [bool](Get-GitValue $Repo @('ls-tree', '--name-only', 'HEAD', '--', $lit))
+            # « HEAD:<chemin> » plutôt que ls-tree + pathspec : ls-tree a répondu pour un fichier absent de
+            # HEAD sous Git for Windows 2.56 (recette CI), ce qui envoyait vers la restauration au lieu de la suppression.
+            $inHead = $hasHead -and ((Invoke-Git $Repo @('cat-file', '-e', "HEAD:$($path.Replace('\', '/'))") -AllowFail).ExitCode -eq 0)
             if ($inHead) {
                 return Invoke-GitAction $Repo @('restore', '--source=HEAD', '--staged', '--worktree', '--', $lit) "Modifications abandonnées : $path"
             }
